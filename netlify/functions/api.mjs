@@ -16,6 +16,7 @@ const vectorTileHeaders = {
 };
 
 let mongoClientPromise;
+let mongoUnavailableUntil = 0;
 
 export async function handler(event, context = {}) {
     context.callbackWaitsForEmptyEventLoop = false;
@@ -489,11 +490,26 @@ async function mongoDb() {
         return null;
     }
 
+    if (Date.now() < mongoUnavailableUntil) {
+        return null;
+    }
+
     mongoClientPromise ??= MongoClient.connect(uri, {
         maxPoolSize: 3,
+        serverSelectionTimeoutMS: 4500,
+        connectTimeoutMS: 4500,
+        socketTimeoutMS: 10000,
     });
 
-    const client = await mongoClientPromise;
+    try {
+        const client = await mongoClientPromise;
 
-    return client.db(process.env.MONGODB_DATABASE ?? 'kadastr_view');
+        return client.db(process.env.MONGODB_DATABASE ?? 'kadastr_view');
+    } catch (error) {
+        mongoClientPromise = null;
+        mongoUnavailableUntil = Date.now() + 60000;
+        console.error('MongoDB connection unavailable', error);
+
+        return null;
+    }
 }
