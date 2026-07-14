@@ -1,6 +1,14 @@
 <template>
     <main class="app-shell">
         <section class="map-surface">
+            <section class="seo-summary" aria-label="Про сервіс Kadastr View">
+                <h2>Кадастрова карта України онлайн</h2>
+                <p>
+                    Kadastr View допомагає знайти земельну ділянку за кадастровим номером,
+                    переглянути її межі, площу, форму власності та відкриті довідкові геодані на карті України.
+                </p>
+            </section>
+
             <div ref="mapContainer" class="map-canvas" aria-label="Інтерактивна карта України"></div>
 
             <header class="topbar">

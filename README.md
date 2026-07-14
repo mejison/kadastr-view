@@ -45,6 +45,21 @@ npm run build
 
 Netlify publishes the generated `dist` directory.
 
+## SEO
+
+The temporary canonical domain is:
+
+```text
+https://kadastrview.netlify.app/
+```
+
+When the production domain changes, update it in:
+
+- `index.html`
+- `public/robots.txt`
+- `public/sitemap.xml`
+- `public/og-image.svg`
+
 ## API
 
 The frontend keeps stable API paths:
