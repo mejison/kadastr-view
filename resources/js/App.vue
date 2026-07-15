@@ -44,11 +44,22 @@
 
             <aside v-if="selectedParcel" class="parcel-panel" @pointerenter="clearMapHoverState">
                 <div class="panel-header">
-                    <MapPinned :size="19" aria-hidden="true" />
-                    <div>
-                        <p class="eyebrow">Вибрана ділянка</p>
-                        <h2>{{ selectedParcel.cadastral_number }}</h2>
+                    <div class="panel-title">
+                        <MapPinned :size="19" aria-hidden="true" />
+                        <div>
+                            <p class="eyebrow">Вибрана ділянка</p>
+                            <h2>{{ selectedParcel.cadastral_number }}</h2>
+                        </div>
                     </div>
+                    <button
+                        type="button"
+                        class="panel-close"
+                        title="Закрити картку ділянки"
+                        aria-label="Закрити картку ділянки"
+                        @click="closeSelectedParcel"
+                    >
+                        <X :size="18" aria-hidden="true" />
+                    </button>
                 </div>
 
                 <dl class="parcel-grid">
@@ -176,6 +187,7 @@ import {
     Layers,
     MapPinned,
     Search,
+    X,
 } from '@lucide/vue';
 import maplibregl, { LngLatBounds } from 'maplibre-gl';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
@@ -862,6 +874,16 @@ function clearSelectedParcelRouteState(): void {
     selectedSketch.value = null;
     searchStatus.value = '';
     clearSelectedFeature();
+}
+
+function closeSelectedParcel(): void {
+    clearSelectedParcelRouteState();
+    clearMapHoverState();
+
+    if (parcelNumberFromRoute()) {
+        const nextUrl = `/${window.location.search}${window.location.hash}`;
+        window.history.pushState({}, '', nextUrl);
+    }
 }
 
 function clearMapHoverState(): void {
