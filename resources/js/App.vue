@@ -195,6 +195,7 @@ type Parcel = {
 
 type RenderedMapFeature = Feature<Geometry> & {
     source?: string;
+    sourceLayer?: string;
 };
 
 type TooltipRow = {
@@ -294,6 +295,19 @@ const ukraineNavigationBounds: [[number, number], [number, number]] = [
 ];
 const overviewParcelMinZoom = 8.5;
 const externalPolygonMinZoom = 10.75;
+const emptyExternalFeatureFilter: maplibregl.FilterSpecification = ['==', ['get', '__kadastr_view_empty__'], true];
+const externalHoverLayerIds = [
+    'external-kadastr-polygons-hover-fill',
+    'external-kadastr-polygons-hover-line',
+    'external-kadastr-land-hover-fill',
+    'external-kadastr-land-hover-line',
+];
+const externalSelectedLayerIds = [
+    'external-kadastr-polygons-selected-fill',
+    'external-kadastr-polygons-selected-line',
+    'external-kadastr-land-selected-fill',
+    'external-kadastr-land-selected-line',
+];
 const mapViewStorageKey = 'kadastr-view:map-view:v1';
 const baseMapStorageKey = 'kadastr-view:base-map:v1';
 const baseMaps: BaseMap[] = [
@@ -694,7 +708,7 @@ async function searchParcel(
     }
 
     if (selectedFeature?.geometry) {
-        highlightSelectedFeature(selectedFeature);
+        highlightSelectedFeature(renderedFeature ?? selectedFeature);
         const parcel = renderedFeature
             ? parcelFromFeature(renderedFeature, manualQuery)
             : payload.data;
@@ -863,7 +877,7 @@ function clearMapHoverState(): void {
 
 function bindMapInteractions(map: maplibregl.Map): void {
     map.on('click', async (event) => {
-        const feature = findInteractiveFeature(map, event.point);
+        const feature = findInteractiveFeature(map, event.point, [event.lngLat.lng, event.lngLat.lat]);
 
         if (!feature?.geometry) {
             return;
@@ -873,7 +887,7 @@ function bindMapInteractions(map: maplibregl.Map): void {
     });
 
     map.on('mousemove', (event) => {
-        const feature = findInteractiveFeature(map, event.point);
+        const feature = findInteractiveFeature(map, event.point, [event.lngLat.lng, event.lngLat.lat]);
         const hasFeature = Boolean(feature?.geometry);
 
         map.getCanvas().style.cursor = hasFeature ? 'pointer' : '';
@@ -886,7 +900,11 @@ function bindMapInteractions(map: maplibregl.Map): void {
     });
 }
 
-function findInteractiveFeature(map: maplibregl.Map, point: maplibregl.PointLike): RenderedMapFeature | undefined {
+function findInteractiveFeature(
+    map: maplibregl.Map,
+    point: maplibregl.PointLike,
+    lngLat: [number, number],
+): RenderedMapFeature | undefined {
     const layerPriority = interactiveLayersForZoom(map.getZoom());
 
     for (const layerId of layerPriority) {
@@ -896,6 +914,7 @@ function findInteractiveFeature(map: maplibregl.Map, point: maplibregl.PointLike
 
         const feature = bestInteractiveFeatureAtPoint(
             map.queryRenderedFeatures(point, { layers: [layerId] }) as RenderedMapFeature[],
+            lngLat,
         );
 
         if (feature?.geometry) {
@@ -907,23 +926,78 @@ function findInteractiveFeature(map: maplibregl.Map, point: maplibregl.PointLike
 }
 
 function interactiveLayersForZoom(zoom: number): string[] {
-    return zoom >= 11
-        ? ['external-kadastr-land-fill', 'external-kadastr-polygons-fill']
-        : ['external-kadastr-polygons-fill', 'parcel-fill'];
+    return zoom >= externalPolygonMinZoom
+        ? ['external-kadastr-polygons-fill', 'external-kadastr-land-fill', 'parcel-fill']
+        : ['parcel-fill'];
 }
 
-function bestInteractiveFeatureAtPoint(features: RenderedMapFeature[]): RenderedMapFeature | undefined {
+function bestInteractiveFeatureAtPoint(
+    features: RenderedMapFeature[],
+    lngLat: [number, number],
+): RenderedMapFeature | undefined {
     const candidates = features
         .filter((feature) => feature.geometry)
         .map((feature, index) => ({
-            feature,
+            feature: featureWithGeometryAtPoint(feature, lngLat),
             index,
-            area: displayGeometryArea(feature.geometry),
+        }))
+        .filter((candidate) => candidate.feature?.geometry)
+        .map((candidate) => ({
+            ...candidate,
+            feature: candidate.feature as RenderedMapFeature,
+            area: displayGeometryArea(candidate.feature?.geometry),
         }))
         .filter((candidate) => candidate.area > 0)
-        .sort((left, right) => right.area - left.area || left.index - right.index);
+        .sort((left, right) => left.area - right.area || left.index - right.index);
 
     return candidates[0]?.feature ?? features.find((feature) => feature.geometry);
+}
+
+function featureWithGeometryAtPoint(
+    feature: RenderedMapFeature,
+    lngLat: [number, number],
+): RenderedMapFeature | null {
+    if (!feature.geometry) {
+        return null;
+    }
+
+    const geometry = geometryAtPoint(feature.geometry, lngLat) ?? cleanGeometryForParcelDisplay(feature.geometry);
+
+    if (!geometry) {
+        return null;
+    }
+
+    return {
+        ...feature,
+        geometry,
+    };
+}
+
+function geometryAtPoint(geometry: Geometry, lngLat: [number, number]): Geometry | null {
+    if (geometry.type === 'Polygon') {
+        return polygonContainsPoint(geometry.coordinates as [number, number][][], lngLat)
+            ? cleanGeometryForParcelDisplay(geometry)
+            : null;
+    }
+
+    if (geometry.type === 'MultiPolygon') {
+        const containingPolygons = geometry.coordinates
+            .filter((polygon) => polygonContainsPoint(polygon as [number, number][][], lngLat))
+            .map((polygon) => ({
+                polygon: polygon as [number, number][][],
+                area: polygonDisplayArea(polygon as [number, number][][]),
+            }))
+            .filter((candidate) => candidate.area > 0)
+            .sort((left, right) => left.area - right.area);
+
+        const polygon = containingPolygons[0]?.polygon;
+
+        return polygon
+            ? cleanGeometryForParcelDisplay({ type: 'Polygon', coordinates: polygon })
+            : null;
+    }
+
+    return null;
 }
 
 function tooltipFromFeature(feature: RenderedMapFeature, point: maplibregl.PointLike): HoverTooltip {
@@ -1253,6 +1327,64 @@ function polygonDisplayArea(polygon: [number, number][][]): number {
     return Math.max(0, exteriorArea - holesArea);
 }
 
+function polygonContainsPoint(polygon: [number, number][][], point: [number, number]): boolean {
+    const exteriorRing = polygon[0];
+
+    if (!exteriorRing || !ringContainsPoint(exteriorRing, point)) {
+        return false;
+    }
+
+    return !polygon.slice(1).some((hole) => ringContainsPoint(hole, point));
+}
+
+function ringContainsPoint(ring: [number, number][], point: [number, number]): boolean {
+    if (ring.length < 4) {
+        return false;
+    }
+
+    const [pointLng, pointLat] = point;
+    let inside = false;
+
+    for (let currentIndex = 0, previousIndex = ring.length - 1; currentIndex < ring.length; previousIndex = currentIndex++) {
+        const [currentLng, currentLat] = ring[currentIndex];
+        const [previousLng, previousLat] = ring[previousIndex];
+
+        if (pointIsOnSegment(point, [previousLng, previousLat], [currentLng, currentLat])) {
+            return true;
+        }
+
+        const intersects = (currentLat > pointLat) !== (previousLat > pointLat)
+            && pointLng < ((previousLng - currentLng) * (pointLat - currentLat)) / (previousLat - currentLat) + currentLng;
+
+        if (intersects) {
+            inside = !inside;
+        }
+    }
+
+    return inside;
+}
+
+function pointIsOnSegment(
+    point: [number, number],
+    start: [number, number],
+    end: [number, number],
+): boolean {
+    const [pointLng, pointLat] = point;
+    const [startLng, startLat] = start;
+    const [endLng, endLat] = end;
+    const cross = (pointLat - startLat) * (endLng - startLng) - (pointLng - startLng) * (endLat - startLat);
+    const tolerance = 1e-10;
+
+    if (Math.abs(cross) > tolerance) {
+        return false;
+    }
+
+    return pointLng >= Math.min(startLng, endLng) - tolerance
+        && pointLng <= Math.max(startLng, endLng) + tolerance
+        && pointLat >= Math.min(startLat, endLat) - tolerance
+        && pointLat <= Math.max(startLat, endLat) + tolerance;
+}
+
 function cleanFeatureForParcelDisplay(feature: Feature<Geometry> | null | undefined): Feature<Geometry> | null {
     if (!feature?.geometry) {
         return null;
@@ -1455,12 +1587,10 @@ async function selectRenderedFeature(feature: RenderedMapFeature): Promise<void>
         ?? stringProperty(properties.parcels)
         ?? stringProperty(properties.id)
         ?? 'Вибраний полігон';
-    const displayFeature = cadastralNumber === 'Вибраний полігон'
-        ? feature
-        : bestRenderedFeatureByNumber(cadastralNumber) ?? feature;
+    const displayFeature = feature;
     const selectedFeature = cleanFeatureForParcelDisplay(toPlainFeature(displayFeature)) ?? toPlainFeature(displayFeature);
 
-    highlightSelectedFeature(selectedFeature);
+    highlightSelectedFeature(displayFeature);
     searchStatus.value = '';
 
     const parcel = parcelFromFeature(displayFeature, cadastralNumber);
@@ -1505,8 +1635,8 @@ function bestRenderedFeatureByNumber(cadastralNumber: string): RenderedMapFeatur
 
     const normalizedNumber = cadastralNumber.replace(/\s+/g, '');
     const layers = [
-        'external-kadastr-land-fill',
         'external-kadastr-polygons-fill',
+        'external-kadastr-land-fill',
         'parcel-fill',
     ];
     const matches: RenderedMapFeature[] = [];
@@ -1914,7 +2044,6 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
         source: 'external-kadastr',
         'source-layer': 'polygons',
         minzoom: externalPolygonMinZoom,
-        maxzoom: 12,
         paint: {
             'fill-color': cadastralOwnershipFillColor(),
             'fill-opacity': 0.12,
@@ -1927,7 +2056,6 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
         source: 'external-kadastr',
         'source-layer': 'polygons',
         minzoom: externalPolygonMinZoom,
-        maxzoom: 12,
         paint: {
             'line-color': cadastralOwnershipLineColor(),
             'line-width': [
@@ -1980,6 +2108,89 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
             'line-opacity': 0.88,
         },
     });
+
+    addExternalHighlightLayers(map, 'polygons');
+    addExternalHighlightLayers(map, 'land_polygons');
+    moveLayerToTop(map, 'external-kadastr-polygons-fill');
+    moveLayerToTop(map, 'external-kadastr-polygons-line');
+    externalHoverLayerIds.forEach((layerId) => moveLayerToTop(map, layerId));
+    externalSelectedLayerIds.forEach((layerId) => moveLayerToTop(map, layerId));
+}
+
+function addExternalHighlightLayers(map: maplibregl.Map, sourceLayer: 'polygons' | 'land_polygons'): void {
+    const layerPrefix = sourceLayer === 'polygons'
+        ? 'external-kadastr-polygons'
+        : 'external-kadastr-land';
+
+    map.addLayer({
+        id: `${layerPrefix}-hover-fill`,
+        type: 'fill',
+        source: 'external-kadastr',
+        'source-layer': sourceLayer,
+        filter: emptyExternalFeatureFilter,
+        minzoom: sourceLayer === 'polygons' ? externalPolygonMinZoom : 11,
+        paint: {
+            'fill-color': '#5fb8d2',
+            'fill-opacity': 0.42,
+        },
+    });
+
+    map.addLayer({
+        id: `${layerPrefix}-hover-line`,
+        type: 'line',
+        source: 'external-kadastr',
+        'source-layer': sourceLayer,
+        filter: emptyExternalFeatureFilter,
+        minzoom: sourceLayer === 'polygons' ? externalPolygonMinZoom : 11,
+        paint: {
+            'line-color': '#2c8fb0',
+            'line-width': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                11,
+                2.4,
+                16,
+                3.6,
+            ],
+            'line-opacity': 0.95,
+        },
+    });
+
+    map.addLayer({
+        id: `${layerPrefix}-selected-fill`,
+        type: 'fill',
+        source: 'external-kadastr',
+        'source-layer': sourceLayer,
+        filter: emptyExternalFeatureFilter,
+        minzoom: sourceLayer === 'polygons' ? externalPolygonMinZoom : 11,
+        paint: {
+            'fill-color': '#d90b12',
+            'fill-opacity': 0.34,
+        },
+    });
+
+    map.addLayer({
+        id: `${layerPrefix}-selected-line`,
+        type: 'line',
+        source: 'external-kadastr',
+        'source-layer': sourceLayer,
+        filter: emptyExternalFeatureFilter,
+        minzoom: sourceLayer === 'polygons' ? externalPolygonMinZoom : 11,
+        paint: {
+            'line-color': '#d90b12',
+            'line-width': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                11,
+                3,
+                16,
+                4.5,
+            ],
+            'line-opacity': 1,
+        },
+    });
 }
 
 function cadastralOwnershipFillColor(): maplibregl.ExpressionSpecification {
@@ -2023,6 +2234,15 @@ function highlightSelectedFeature(feature: Feature<Geometry>): void {
         return;
     }
 
+    if (applyExternalFeatureFilter(map, feature as RenderedMapFeature, externalSelectedLayerIds)) {
+        const selectedSource = map.getSource('selected-parcel') as maplibregl.GeoJSONSource | undefined;
+        selectedSource?.setData(emptyFeatureCollection());
+        externalSelectedLayerIds.forEach((layerId) => moveLayerToTop(map, layerId));
+        return;
+    }
+
+    clearExternalFeatureFilter(map, externalSelectedLayerIds);
+
     const selectedSource = map.getSource('selected-parcel') as maplibregl.GeoJSONSource | undefined;
     const selectedCollection: FeatureCollection = {
         type: 'FeatureCollection',
@@ -2045,6 +2265,7 @@ function clearSelectedFeature(): void {
 
     const selectedSource = map.getSource('selected-parcel') as maplibregl.GeoJSONSource | undefined;
     selectedSource?.setData(emptyFeatureCollection());
+    clearExternalFeatureFilter(map, externalSelectedLayerIds);
 }
 
 function moveLayerToTop(map: maplibregl.Map, layerId: string): void {
@@ -2066,10 +2287,87 @@ function updateHoveredFeature(feature: Feature<Geometry> | null): void {
         return;
     }
 
+    if (feature?.geometry && applyExternalFeatureFilter(map, feature as RenderedMapFeature, externalHoverLayerIds)) {
+        hoveredSource.setData(emptyFeatureCollection());
+        externalHoverLayerIds.forEach((layerId) => moveLayerToTop(map, layerId));
+        return;
+    }
+
+    clearExternalFeatureFilter(map, externalHoverLayerIds);
     hoveredSource.setData(feature?.geometry ? {
         type: 'FeatureCollection',
         features: [toPlainFeature(feature)],
     } : emptyFeatureCollection());
+}
+
+function applyExternalFeatureFilter(
+    map: maplibregl.Map,
+    feature: RenderedMapFeature,
+    layerIds: string[],
+): boolean {
+    if (feature.source !== 'external-kadastr') {
+        return false;
+    }
+
+    const filter = externalFeatureFilter(feature);
+
+    if (!filter) {
+        return false;
+    }
+
+    clearExternalFeatureFilter(map, layerIds);
+
+    const targetLayerIds = externalHighlightLayerIdsForFeature(feature, layerIds);
+
+    for (const layerId of targetLayerIds) {
+        if (map.getLayer(layerId)) {
+            map.setFilter(layerId, filter);
+        }
+    }
+
+    return true;
+}
+
+function externalHighlightLayerIdsForFeature(feature: RenderedMapFeature, layerIds: string[]): string[] {
+    if (feature.sourceLayer === 'polygons') {
+        return layerIds.filter((layerId) => layerId.includes('-polygons-'));
+    }
+
+    if (feature.sourceLayer === 'land_polygons') {
+        return layerIds.filter((layerId) => layerId.includes('-land-'));
+    }
+
+    return layerIds;
+}
+
+function clearExternalFeatureFilter(map: maplibregl.Map, layerIds: string[]): void {
+    for (const layerId of layerIds) {
+        if (map.getLayer(layerId)) {
+            map.setFilter(layerId, emptyExternalFeatureFilter);
+        }
+    }
+}
+
+function externalFeatureFilter(feature: RenderedMapFeature): maplibregl.FilterSpecification | null {
+    const properties = feature.properties ?? {};
+    const cadastralNumber = stringProperty(properties.cadastral_number)
+        ?? stringProperty(properties.cadnum)
+        ?? stringProperty(properties.cad_num)
+        ?? stringProperty(properties.parcels)
+        ?? stringProperty(properties.id);
+
+    if (!cadastralNumber) {
+        return feature.id === undefined ? null : ['==', ['id'], feature.id];
+    }
+
+    return [
+        'any',
+        ['==', ['get', 'cadastral_number'], cadastralNumber],
+        ['==', ['get', 'cadnum'], cadastralNumber],
+        ['==', ['get', 'cad_num'], cadastralNumber],
+        ['==', ['get', 'parcels'], cadastralNumber],
+        ['==', ['get', 'id'], cadastralNumber],
+    ];
 }
 
 function toPlainFeature(feature: Feature<Geometry>): Feature<Geometry> {
