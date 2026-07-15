@@ -1,4 +1,4 @@
-# Kadastr View
+# KadastrView
 
 Interactive cadastral map MVP for Ukraine, built as a static Vue app with Netlify Functions and MongoDB Atlas.
 

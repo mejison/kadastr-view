@@ -1,10 +1,10 @@
 <template>
     <main class="app-shell">
         <section class="map-surface">
-            <section class="seo-summary" aria-label="Про сервіс Kadastr View">
+            <section class="seo-summary" aria-label="Про сервіс KadastrView">
                 <h2>Кадастрова карта України онлайн</h2>
                 <p>
-                    Kadastr View допомагає знайти земельну ділянку за кадастровим номером,
+                    KadastrView допомагає знайти земельну ділянку за кадастровим номером,
                     переглянути межі, площу, форму власності, цільове призначення, категорію земель,
                     адресу та відкриті довідкові геодані на інтерактивній кадастровій карті України.
                 </p>
@@ -21,7 +21,7 @@
                     <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true">
                     <div>
                         <p class="eyebrow">Карта земельних ділянок</p>
-                        <h1>Kadastr View</h1>
+                        <h1>KadastrView</h1>
                     </div>
                 </div>
 

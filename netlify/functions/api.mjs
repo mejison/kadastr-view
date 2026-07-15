@@ -101,7 +101,7 @@ async function proxyKadastrTile(z, x, y) {
     const response = await fetch(sourceUrl, {
         headers: {
             accept: 'application/x-protobuf,application/octet-stream,*/*',
-            'user-agent': 'Kadastr View development tile proxy',
+            'user-agent': 'KadastrView development tile proxy',
         },
         signal: AbortSignal.timeout(10000),
     });
