@@ -16,6 +16,16 @@
 
             <div ref="mapContainer" class="map-canvas" aria-label="Інтерактивна карта України"></div>
 
+            <button
+                type="button"
+                :class="['geolocation-button', { 'is-locating': geolocationLoading }]"
+                title="Показати мою локацію"
+                aria-label="Показати мою локацію"
+                @click="locateUserFromButton"
+            >
+                <LocateFixed :size="20" aria-hidden="true" />
+            </button>
+
             <header class="topbar" @pointerenter="clearMapHoverState">
                 <div class="brand-block">
                     <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true">
@@ -185,6 +195,7 @@ import {
     ChevronLeft,
     Download,
     Layers,
+    LocateFixed,
     MapPinned,
     Search,
     X,
@@ -298,6 +309,7 @@ const selectedSketch = ref<ParcelSketch | null>(null);
 const hoverTooltip = ref<HoverTooltip | null>(null);
 const layerPanelCollapsed = ref(true);
 const selectedBaseMapId = ref<BaseMapId>('osm');
+const geolocationLoading = ref(false);
 const mapStatus = ref('завантаження карти');
 const externalKadastrEnabled = true;
 const ukraineCenter: [number, number] = [31.1656, 48.3794];
@@ -307,6 +319,9 @@ const ukraineNavigationBounds: [[number, number], [number, number]] = [
 ];
 const overviewParcelMinZoom = 8.5;
 const externalPolygonMinZoom = 10.75;
+const geolocationPermissionDeniedCode = 1;
+const geolocationPositionUnavailableCode = 2;
+const geolocationTimeoutCode = 3;
 const emptyExternalFeatureFilter: maplibregl.FilterSpecification = ['==', ['get', '__kadastr_view_empty__'], true];
 const externalHoverLayerIds = [
     'external-kadastr-polygons-hover-fill',
@@ -562,10 +577,6 @@ onMounted(() => {
     mapInstance.value = map;
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
     map.addControl(new maplibregl.FullscreenControl(), 'bottom-right');
-    map.addControl(new maplibregl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: true,
-    }), 'bottom-right');
     map.on('moveend', () => saveMapView(map));
     window.addEventListener('popstate', () => {
         void openParcelFromCurrentRoute(false);
@@ -675,6 +686,180 @@ function saveMapView(map: maplibregl.Map): void {
     };
 
     window.localStorage.setItem(mapViewStorageKey, JSON.stringify(value));
+}
+
+async function locateUserFromButton(): Promise<void> {
+    const map = mapInstance.value;
+
+    if (!map || geolocationLoading.value) {
+        return;
+    }
+
+    if (!window.isSecureContext) {
+        searchStatus.value = 'Геолокація працює лише через HTTPS або localhost';
+        return;
+    }
+
+    if (!navigator.geolocation) {
+        searchStatus.value = 'Геолокація недоступна в цьому браузері';
+        return;
+    }
+
+    geolocationLoading.value = true;
+    searchStatus.value = 'Визначаю вашу локацію...';
+
+    try {
+        const position = await currentPositionWithFallback();
+        const center: [number, number] = [
+            position.coords.longitude,
+            position.coords.latitude,
+        ];
+
+        if (!isWithinUkraineNavigationBounds(center)) {
+            searchStatus.value = 'Локація поза межами карти України';
+            return;
+        }
+
+        searchStatus.value = '';
+        showUserLocation(map, position);
+        map.easeTo({
+            center,
+            zoom: Math.max(map.getZoom(), 15),
+            duration: 700,
+        });
+    } catch (error) {
+        searchStatus.value = geolocationErrorMessage(error);
+    } finally {
+        geolocationLoading.value = false;
+    }
+}
+
+async function currentPositionWithFallback(): Promise<GeolocationPosition> {
+    try {
+        return await currentPosition({
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 8000,
+        });
+    } catch (error) {
+        if (isPermissionDeniedGeolocationError(error)) {
+            throw error;
+        }
+
+        return currentPosition({
+            enableHighAccuracy: false,
+            maximumAge: 180000,
+            timeout: 20000,
+        });
+    }
+}
+
+function currentPosition(options: PositionOptions): Promise<GeolocationPosition> {
+    return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, options);
+    });
+}
+
+function isPermissionDeniedGeolocationError(error: unknown): boolean {
+    return geolocationErrorCode(error) === geolocationPermissionDeniedCode;
+}
+
+function showUserLocation(map: maplibregl.Map, position: GeolocationPosition): void {
+    const center: [number, number] = [
+        position.coords.longitude,
+        position.coords.latitude,
+    ];
+    const accuracy = Math.max(position.coords.accuracy || 0, 20);
+    const featureCollection: FeatureCollection = {
+        type: 'FeatureCollection',
+        features: [
+            {
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: center,
+                },
+                properties: {
+                    accuracy,
+                },
+            },
+        ],
+    };
+    const source = map.getSource('user-location') as maplibregl.GeoJSONSource | undefined;
+
+    if (source) {
+        source.setData(featureCollection);
+        return;
+    }
+
+    map.addSource('user-location', {
+        type: 'geojson',
+        data: featureCollection,
+    });
+    map.addLayer({
+        id: 'user-location-accuracy',
+        type: 'circle',
+        source: 'user-location',
+        paint: {
+            'circle-radius': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                10,
+                6,
+                16,
+                38,
+            ],
+            'circle-color': '#2c8fb0',
+            'circle-opacity': 0.14,
+            'circle-stroke-color': '#2c8fb0',
+            'circle-stroke-opacity': 0.24,
+            'circle-stroke-width': 1,
+        },
+    });
+    map.addLayer({
+        id: 'user-location-point',
+        type: 'circle',
+        source: 'user-location',
+        paint: {
+            'circle-radius': 7,
+            'circle-color': '#1d9bf0',
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 3,
+        },
+    });
+}
+
+function geolocationErrorMessage(error: unknown): string {
+    const code = geolocationErrorCode(error);
+
+    if (code === null) {
+        return 'Не вдалося визначити вашу локацію';
+    }
+
+    if (code === geolocationPermissionDeniedCode) {
+        return 'Доступ до геолокації заборонено';
+    }
+
+    if (code === geolocationPositionUnavailableCode) {
+        return 'Не вдалося визначити локацію. Спробуйте увімкнути GPS або Wi-Fi';
+    }
+
+    if (code === geolocationTimeoutCode) {
+        return 'Геолокація не відповіла вчасно';
+    }
+
+    return 'Не вдалося визначити вашу локацію';
+}
+
+function geolocationErrorCode(error: unknown): number | null {
+    if (!error || typeof error !== 'object' || !('code' in error)) {
+        return null;
+    }
+
+    const code = Number((error as { code: unknown }).code);
+
+    return Number.isFinite(code) ? code : null;
 }
 
 function isWithinUkraineNavigationBounds(center: [number, number]): boolean {
