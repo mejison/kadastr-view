@@ -4,4 +4,4 @@ Allow: /
 Disallow: /api/
 Disallow: /.netlify/
 
-Sitemap: https://kadastrview.netlify.app/sitemap.xml
+Sitemap: https://kadastrview.online/sitemap.xml

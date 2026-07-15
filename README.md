@@ -47,10 +47,10 @@ Netlify publishes the generated `dist` directory.
 
 ## SEO
 
-The temporary canonical domain is:
+The canonical domain is:
 
 ```text
-https://kadastrview.netlify.app/
+https://kadastrview.online/
 ```
 
 When the production domain changes, update it in:

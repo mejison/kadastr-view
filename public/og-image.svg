@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
-    <title id="title">Kadastr View - кадастрова карта України</title>
+    <title id="title">Kadastr View - кадастрова карта України онлайн</title>
     <desc id="desc">Соціальне превʼю для сервісу пошуку земельних ділянок України.</desc>
     <rect width="1200" height="630" fill="#f7f4ea"/>
     <g opacity=".32" stroke="#1f6f54" stroke-width="2" fill="none">
@@ -16,5 +16,5 @@
     <text x="80" y="392" fill="#485143" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="600" letter-spacing="0">Пошук ділянок за кадастровим номером,</text>
     <text x="80" y="436" fill="#485143" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="600" letter-spacing="0">межі, площа, власність та відкриті геодані.</text>
     <rect x="80" y="500" width="346" height="68" rx="12" fill="#1f6f54"/>
-    <text x="112" y="544" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" letter-spacing="0">kadastrview.netlify.app</text>
+    <text x="112" y="544" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" letter-spacing="0">kadastrview.online</text>
 </svg>

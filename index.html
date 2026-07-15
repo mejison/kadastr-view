@@ -6,69 +6,164 @@
         <meta name="theme-color" content="#1f6f54">
         <meta
             name="description"
-            content="Kadastr View - інтерактивна кадастрова карта України для пошуку земельних ділянок за кадастровим номером, перегляду меж, площі, форми власності та відкритих геоданих."
+            content="Kadastr View - кадастрова карта України онлайн. Пошук земельної ділянки за кадастровим номером, перегляд меж, площі, форми власності, призначення та відкритих геоданих."
         >
         <meta
             name="keywords"
-            content="кадастрова карта, кадастрова карта України, земельні ділянки, кадастровий номер, карта ділянок, Kadastr View, земля Україна"
+            content="кадастрова карта, кадастрова карта України, публічна кадастрова карта, кадастровий номер, земельна ділянка, межі ділянки, карта земельних ділянок, Kadastr View"
         >
-        <meta name="robots" content="index, follow, max-image-preview:large">
+        <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
         <meta name="application-name" content="Kadastr View">
         <meta name="apple-mobile-web-app-title" content="Kadastr View">
         <meta name="format-detection" content="telephone=no">
+        <meta name="geo.region" content="UA">
+        <meta name="geo.placename" content="Україна">
 
-        <link rel="canonical" href="https://kadastrview.netlify.app/">
+        <link rel="canonical" href="https://kadastrview.online/">
         <link rel="icon" href="/favicon.svg" type="image/svg+xml">
         <link rel="manifest" href="/site.webmanifest">
+
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-KNR9YDBFDH"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+
+            gtag('config', 'G-KNR9YDBFDH');
+        </script>
 
         <meta property="og:locale" content="uk_UA">
         <meta property="og:type" content="website">
         <meta property="og:site_name" content="Kadastr View">
-        <meta property="og:title" content="Kadastr View - кадастрова карта України">
+        <meta property="og:title" content="Kadastr View - кадастрова карта України онлайн">
         <meta
             property="og:description"
-            content="Пошук земельних ділянок за кадастровим номером, перегляд меж, площі та відкритих кадастрових шарів на інтерактивній карті України."
+            content="Знайдіть земельну ділянку за кадастровим номером, перегляньте межі, площу, форму власності, призначення та відкриті кадастрові шари на карті України."
         >
-        <meta property="og:url" content="https://kadastrview.netlify.app/">
-        <meta property="og:image" content="https://kadastrview.netlify.app/og-image.png">
+        <meta property="og:url" content="https://kadastrview.online/">
+        <meta property="og:image" content="https://kadastrview.online/og-image.png">
         <meta property="og:image:type" content="image/png">
         <meta property="og:image:width" content="1200">
         <meta property="og:image:height" content="630">
         <meta property="og:image:alt" content="Kadastr View - інтерактивна карта земельних ділянок України">
 
         <meta name="twitter:card" content="summary_large_image">
-        <meta name="twitter:title" content="Kadastr View - кадастрова карта України">
+        <meta name="twitter:title" content="Kadastr View - кадастрова карта України онлайн">
         <meta
             name="twitter:description"
-            content="Інтерактивний пошук земельних ділянок України за кадастровим номером."
+            content="Пошук земельних ділянок України за кадастровим номером, межами, площею, власністю і призначенням."
         >
-        <meta name="twitter:image" content="https://kadastrview.netlify.app/og-image.png">
+        <meta name="twitter:image" content="https://kadastrview.online/og-image.png">
 
         <script type="application/ld+json">
             {
                 "@context": "https://schema.org",
-                "@type": "WebApplication",
-                "name": "Kadastr View",
-                "url": "https://kadastrview.netlify.app/",
-                "applicationCategory": "MapApplication",
-                "operatingSystem": "Web",
-                "inLanguage": "uk-UA",
-                "description": "Інтерактивна кадастрова карта України для пошуку земельних ділянок за кадастровим номером та перегляду відкритих геоданих.",
-                "offers": {
-                    "@type": "Offer",
-                    "price": "0",
-                    "priceCurrency": "UAH"
-                },
-                "areaServed": {
-                    "@type": "Country",
-                    "name": "Ukraine"
-                }
+                "@graph": [
+                    {
+                        "@type": "WebSite",
+                        "@id": "https://kadastrview.online/#website",
+                        "name": "Kadastr View",
+                        "alternateName": "Кадастрова карта України онлайн",
+                        "url": "https://kadastrview.online/",
+                        "inLanguage": "uk-UA",
+                        "potentialAction": {
+                            "@type": "SearchAction",
+                            "target": "https://kadastrview.online/dilyanka/{search_term_string}",
+                            "query-input": "required name=search_term_string"
+                        }
+                    },
+                    {
+                        "@type": "WebApplication",
+                        "@id": "https://kadastrview.online/#app",
+                        "name": "Kadastr View",
+                        "url": "https://kadastrview.online/",
+                        "applicationCategory": "MapApplication",
+                        "operatingSystem": "Web",
+                        "browserRequirements": "Requires JavaScript",
+                        "inLanguage": "uk-UA",
+                        "description": "Кадастрова карта України онлайн для пошуку земельних ділянок за кадастровим номером, перегляду меж, площі, форми власності, цільового призначення та відкритих геоданих.",
+                        "keywords": [
+                            "кадастрова карта України",
+                            "пошук за кадастровим номером",
+                            "земельна ділянка",
+                            "межі земельної ділянки",
+                            "карта земельних ділянок"
+                        ],
+                        "offers": {
+                            "@type": "Offer",
+                            "price": "0",
+                            "priceCurrency": "UAH"
+                        },
+                        "areaServed": {
+                            "@type": "Country",
+                            "name": "Ukraine"
+                        }
+                    },
+                    {
+                        "@type": "FAQPage",
+                        "@id": "https://kadastrview.online/#faq",
+                        "inLanguage": "uk-UA",
+                        "mainEntity": [
+                            {
+                                "@type": "Question",
+                                "name": "Як знайти земельну ділянку за кадастровим номером?",
+                                "acceptedAnswer": {
+                                    "@type": "Answer",
+                                    "text": "Введіть кадастровий номер у форматі 10:2:3:4 блоків у поле пошуку Kadastr View. Якщо ділянка є у поточних відкритих шарах або базі, карта переміститься до її меж і покаже площу, форму власності, призначення та адресу."
+                                }
+                            },
+                            {
+                                "@type": "Question",
+                                "name": "Які дані показує Kadastr View?",
+                                "acceptedAnswer": {
+                                    "@type": "Answer",
+                                    "text": "Сервіс показує межі земельних ділянок, кадастровий номер, площу, форму власності, цільове призначення, вид використання, категорію земель, адресу та схему меж за доступними відкритими геоданими."
+                                }
+                            },
+                            {
+                                "@type": "Question",
+                                "name": "Чи є Kadastr View офіційним кадастровим витягом?",
+                                "acceptedAnswer": {
+                                    "@type": "Answer",
+                                    "text": "Ні. Kadastr View є довідковою інтерактивною картою на основі відкритих геоданих. Для юридично значущих дій потрібно отримувати офіційні документи у державних реєстрах."
+                                }
+                            }
+                        ]
+                    }
+                ]
             }
         </script>
 
-        <title>Kadastr View - кадастрова карта України</title>
+        <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@type": "Organization",
+                "name": "Kadastr View",
+                "url": "https://kadastrview.online/",
+                "logo": "https://kadastrview.online/favicon.svg",
+                "sameAs": []
+            }
+        </script>
+
+        <title>Kadastr View - кадастрова карта України онлайн</title>
     </head>
     <body>
+        <section class="seo-static" aria-label="Кадастрова карта України Kadastr View">
+            <h2>Кадастрова карта України онлайн</h2>
+            <p>
+                Kadastr View - інтерактивна карта земельних ділянок України для пошуку за кадастровим номером,
+                перегляду меж, площі, форми власності, цільового призначення, категорії земель та адреси.
+            </p>
+            <p>
+                Сервіс допомагає швидко знайти земельну ділянку, відкрити її персональну сторінку,
+                порівняти межі на дорожній, світлій, рельєфній або супутниковій карті та зберегти схему ділянки.
+            </p>
+            <h2>Пошук земельної ділянки за кадастровим номером</h2>
+            <p>
+                Введіть кадастровий номер у пошук, щоб перейти до ділянки на карті України. Дані мають довідковий
+                характер і не замінюють офіційний кадастровий витяг.
+            </p>
+        </section>
         <div id="app"></div>
         <script type="module" src="/resources/js/app.ts"></script>
     </body>
