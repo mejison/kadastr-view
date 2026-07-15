@@ -207,6 +207,7 @@ h2 {
 }
 
 .parcel-grid div {
+    min-width: 0;
     border: 1px solid rgb(32 35 29 / 10%);
     border-radius: 6px;
     padding: 10px;
@@ -219,10 +220,15 @@ h2 {
 }
 
 .parcel-grid dd {
+    min-width: 0;
+    max-width: 100%;
     margin: 3px 0 0;
     color: #20231d;
     font-size: 14px;
     font-weight: 700;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    hyphens: auto;
 }
 
 .disclaimer {

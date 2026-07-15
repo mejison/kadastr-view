@@ -56,8 +56,8 @@
                         <dd>{{ selectedParcel?.freshness_status ?? 'demo' }}</dd>
                     </div>
                     <div>
-                        <dt>Джерело</dt>
-                        <dd>{{ selectedParcel?.source.name ?? 'Seed dataset' }}</dd>
+                        <dt>Призначення</dt>
+                        <dd>{{ selectedParcel?.purpose?.name ?? selectedParcel?.purpose?.code ?? 'Не вказано' }}</dd>
                     </div>
                     <div>
                         <dt>Оновлено</dt>
@@ -122,6 +122,7 @@ import { absoluteApiUrl, apiUrl } from './api';
 type Parcel = {
     cadastral_number: string;
     area: { declared: number; calculated: number; unit: string };
+    purpose?: { code: string | null; name: string | null } | null;
     freshness_status: string;
     source: { name: string; updated_at: string; official: boolean };
     centroid: { lat: number; lng: number };
@@ -165,6 +166,13 @@ const hoverTooltip = ref<HoverTooltip | null>(null);
 const legendCollapsed = ref(false);
 const mapStatus = ref('завантаження карти');
 const externalKadastrEnabled = true;
+const ukraineCenter: [number, number] = [31.1656, 48.3794];
+const ukraineNavigationBounds: [[number, number], [number, number]] = [
+    [20.2, 43.3],
+    [41.6, 53.3],
+];
+const overviewParcelMinZoom = 8.5;
+const externalPolygonMinZoom = 10.75;
 const cadastralRegionHints: Record<string, RegionHint> = {
     '01': { center: [34.35, 45.2], zoom: 9, name: 'АР Крим' },
     '05': { center: [28.47, 49.23], zoom: 9, name: 'Вінницька область' },
@@ -201,6 +209,62 @@ const legendItems = [
     { label: 'Водний ресурс', color: '#74b9ff', kind: 'swatch' },
     { label: 'Вибрана ділянка', color: '#d90b12', kind: 'swatch' },
 ];
+const landPurposeLabels: Record<string, string> = {
+    '01.01': 'Для ведення товарного сільськогосподарського виробництва',
+    '01.02': 'Для ведення фермерського господарства',
+    '01.03': 'Для ведення особистого селянського господарства',
+    '01.04': 'Для ведення підсобного сільського господарства',
+    '01.05': 'Для індивідуального садівництва',
+    '01.06': 'Для колективного садівництва',
+    '01.07': 'Для городництва',
+    '01.08': 'Для сінокосіння і випасання худоби',
+    '01.09': 'Для дослідних і навчальних цілей',
+    '01.10': 'Для пропаганди передового досвіду ведення сільського господарства',
+    '01.11': 'Для надання послуг у сільському господарстві',
+    '01.12': 'Для розміщення інфраструктури оптових ринків сільськогосподарської продукції',
+    '01.13': 'Для іншого сільськогосподарського призначення',
+    '02.01': 'Для будівництва і обслуговування житлового будинку та господарських будівель',
+    '02.02': 'Для колективного житлового будівництва',
+    '02.03': 'Для будівництва і обслуговування багатоквартирного житлового будинку',
+    '02.04': 'Для будівництва і обслуговування будівель тимчасового проживання',
+    '02.05': 'Для будівництва індивідуальних гаражів',
+    '02.06': 'Для колективного гаражного будівництва',
+    '02.07': 'Для іншої житлової забудови',
+    '03.01': 'Для будівництва та обслуговування будівель органів державної влади',
+    '03.02': 'Для будівництва та обслуговування будівель закладів освіти',
+    '03.03': 'Для будівництва та обслуговування будівель закладів охорони здоровʼя',
+    '03.04': 'Для будівництва та обслуговування будівель громадських та релігійних організацій',
+    '03.05': 'Для будівництва та обслуговування будівель культурно-просвітницького обслуговування',
+    '03.06': 'Для будівництва та обслуговування будівель екстериторіальних організацій',
+    '03.07': 'Для будівництва та обслуговування будівель торгівлі',
+    '03.08': 'Для будівництва та обслуговування обʼєктів туристичної інфраструктури',
+    '03.09': 'Для будівництва та обслуговування будівель кредитно-фінансових установ',
+    '03.10': 'Для будівництва та обслуговування будівель ринкової інфраструктури',
+    '03.11': 'Для будівництва та обслуговування будівель і споруд закладів науки',
+    '03.12': 'Для будівництва та обслуговування будівель закладів комунального обслуговування',
+    '03.13': 'Для будівництва та обслуговування будівель закладів побутового обслуговування',
+    '03.14': 'Для розміщення та постійної діяльності органів і підрозділів ДСНС',
+    '03.15': 'Для будівництва та обслуговування інших будівель громадської забудови',
+    '07.01': 'Для будівництва та обслуговування обʼєктів рекреаційного призначення',
+    '07.02': 'Для будівництва та обслуговування обʼєктів фізичної культури і спорту',
+    '07.03': 'Для індивідуального дачного будівництва',
+    '07.04': 'Для колективного дачного будівництва',
+    '10.01': 'Для експлуатації та догляду за водними обʼєктами',
+    '10.02': 'Для облаштування та догляду за прибережними захисними смугами',
+    '10.03': 'Для експлуатації та догляду за смугами відведення',
+    '10.04': 'Для експлуатації та догляду за гідротехнічними спорудами',
+    '10.05': 'Для догляду за береговими смугами водних шляхів',
+    '10.06': 'Для сінокосіння',
+    '10.07': 'Для рибогосподарських потреб',
+    '10.08': 'Для культурно-оздоровчих потреб, рекреаційних, спортивних і туристичних цілей',
+    '11.01': 'Для розміщення та експлуатації основних, підсобних і допоміжних будівель промисловості',
+    '11.02': 'Для розміщення та експлуатації будівель і споруд підприємств переробної, машинобудівної та іншої промисловості',
+    '12.04': 'Для розміщення та експлуатації будівель і споруд автомобільного транспорту',
+    '12.08': 'Для розміщення та експлуатації будівель і споруд додаткових транспортних послуг',
+    '13.01': 'Для розміщення та експлуатації обʼєктів і споруд телекомунікацій',
+    '14.01': 'Для розміщення, будівництва та експлуатації обʼєктів енергогенеруючих підприємств',
+    '14.02': 'Для розміщення, будівництва та експлуатації будівель і споруд обʼєктів передачі електричної та теплової енергії',
+};
 
 onMounted(() => {
     if (!mapContainer.value) {
@@ -241,9 +305,12 @@ onMounted(() => {
                 },
             ],
         },
-        center: [31.1656, 48.3794],
+        center: ukraineCenter,
         zoom: 5.2,
+        minZoom: 5.2,
         maxZoom: 22,
+        maxBounds: ukraineNavigationBounds,
+        renderWorldCopies: false,
     });
 
     mapInstance.value = map;
@@ -481,10 +548,13 @@ function tooltipFromFeature(feature: RenderedMapFeature, point: maplibregl.Point
         ?? stringProperty(properties.id)
         ?? stringProperty(properties.address)
         ?? 'Вибраний полігон';
-    const purpose = stringProperty(properties.purpose)
-        ?? stringProperty(properties.purpose_code)
+    const purposeCode = stringProperty(properties.purpose_code)
+        ?? stringProperty(properties.purpose);
+    const purpose = purposeLabel(purposeCode)
+        ?? stringProperty(properties.purpose_name)
         ?? stringProperty(properties.use)
-        ?? stringProperty(properties.landuse);
+        ?? stringProperty(properties.landuse)
+        ?? purposeCode;
     const category = stringProperty(properties.category)
         ?? stringProperty(properties.land_category)
         ?? stringProperty(properties.source_name)
@@ -581,6 +651,12 @@ function parcelFromFeature(feature: RenderedMapFeature, cadastralNumber: string)
     const ownership = stringProperty(properties.ownership)
         ?? stringProperty(properties.ownership_type)
         ?? ownershipLabel(stringProperty(properties.ownership_category));
+    const purposeCode = stringProperty(properties.purpose_code)
+        ?? stringProperty(properties.purpose);
+    const purposeName = purposeLabel(purposeCode)
+        ?? stringProperty(properties.purpose_name)
+        ?? stringProperty(properties.use)
+        ?? stringProperty(properties.landuse);
     const sourceName = stringProperty(properties.source_name)
         ?? (feature.source === 'external-kadastr' ? 'kadastrova-karta vector tiles' : 'Відкритий геошар');
 
@@ -591,6 +667,10 @@ function parcelFromFeature(feature: RenderedMapFeature, cadastralNumber: string)
             calculated: 0,
             unit: 'ha',
         },
+        purpose: purposeCode || purposeName ? {
+            code: purposeCode,
+            name: purposeName,
+        } : null,
         freshness_status: ownership ?? 'open_reference',
         source: {
             name: sourceName,
@@ -657,6 +737,16 @@ function ownershipLabel(category: string | null): string | null {
     return null;
 }
 
+function purposeLabel(code: string | null): string | null {
+    if (!code) {
+        return null;
+    }
+
+    const normalizedCode = code.trim().match(/\d{2}\.\d{2}/)?.[0];
+
+    return normalizedCode ? landPurposeLabels[normalizedCode] ?? null : null;
+}
+
 async function loadParcelLayer(): Promise<FeatureCollection> {
     const response = await fetch('/data/parcels-overview.geojson');
     const geojson = await response.json() as FeatureCollection;
@@ -685,7 +775,12 @@ async function loadParcelLayer(): Promise<FeatureCollection> {
         id: 'parcel-fill',
         type: 'fill',
         source: 'parcels',
-        filter: ['!=', ['get', 'source_name'], 'geoBoundaries Ukraine ADM2'],
+        filter: [
+            'all',
+            ['!=', ['get', 'source_name'], 'geoBoundaries Ukraine ADM2'],
+            ['!=', ['get', 'source_name'], 'geoBoundaries Ukraine ADM3'],
+        ],
+        minzoom: overviewParcelMinZoom,
         maxzoom: 11,
         paint: {
             'fill-color': [
@@ -716,7 +811,12 @@ async function loadParcelLayer(): Promise<FeatureCollection> {
         id: 'parcel-line',
         type: 'line',
         source: 'parcels',
-        filter: ['!=', ['get', 'source_name'], 'geoBoundaries Ukraine ADM2'],
+        filter: [
+            'all',
+            ['!=', ['get', 'source_name'], 'geoBoundaries Ukraine ADM2'],
+            ['!=', ['get', 'source_name'], 'geoBoundaries Ukraine ADM3'],
+        ],
+        minzoom: overviewParcelMinZoom,
         maxzoom: 11,
         paint: {
             'line-color': [
@@ -869,7 +969,7 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
         type: 'fill',
         source: 'external-kadastr',
         'source-layer': 'polygons',
-        minzoom: 3,
+        minzoom: externalPolygonMinZoom,
         maxzoom: 12,
         paint: {
             'fill-color': cadastralOwnershipFillColor(),
@@ -882,7 +982,7 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
         type: 'line',
         source: 'external-kadastr',
         'source-layer': 'polygons',
-        minzoom: 3,
+        minzoom: externalPolygonMinZoom,
         maxzoom: 12,
         paint: {
             'line-color': cadastralOwnershipLineColor(),
