@@ -4,6 +4,7 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
+        "data:export-overview": "node --env-file=.env scripts/export-overview-geojson.mjs",
         "dev": "vite",
         "mongo:setup": "node --env-file=.env scripts/setup-mongodb.mjs",
         "typecheck": "vue-tsc --noEmit"

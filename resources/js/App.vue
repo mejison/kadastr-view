@@ -658,7 +658,7 @@ function ownershipLabel(category: string | null): string | null {
 }
 
 async function loadParcelLayer(): Promise<FeatureCollection> {
-    const response = await fetch(apiUrl('/api/v1/parcels.geojson?limit=12000'));
+    const response = await fetch('/data/parcels-overview.geojson');
     const geojson = await response.json() as FeatureCollection;
     const map = mapInstance.value;
 
