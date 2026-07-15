@@ -16,7 +16,7 @@
 
             <div ref="mapContainer" class="map-canvas" aria-label="Інтерактивна карта України"></div>
 
-            <header class="topbar">
+            <header class="topbar" @pointerenter="clearMapHoverState">
                 <div class="brand-block">
                     <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true">
                     <div>
@@ -42,7 +42,7 @@
                 </div>
             </header>
 
-            <aside v-if="selectedParcel" class="parcel-panel">
+            <aside v-if="selectedParcel" class="parcel-panel" @pointerenter="clearMapHoverState">
                 <div class="panel-header">
                     <MapPinned :size="19" aria-hidden="true" />
                     <div>
@@ -113,7 +113,11 @@
                 </section>
             </aside>
 
-            <aside :class="['layer-panel', { 'is-collapsed': layerPanelCollapsed }]" aria-label="Шари карти">
+            <aside
+                :class="['layer-panel', { 'is-collapsed': layerPanelCollapsed }]"
+                aria-label="Шари карти"
+                @pointerenter="clearMapHoverState"
+            >
                 <header class="layer-header">
                     <h2 v-if="!layerPanelCollapsed">Шари карти</h2>
                     <button
@@ -676,17 +680,17 @@ async function searchParcel(
     const geometryPayload = await geometryResponse.json();
     const feature = geometryPayload.data as Feature<Geometry> | null;
 
-    let renderedFeature = knownFeature ? (knownFeature as RenderedMapFeature) : findVisibleFeatureByNumber(manualQuery);
-    let selectedFeature = renderedFeature ?? (feature?.geometry ? feature : null);
+    let renderedFeature = findVisibleFeatureByNumber(manualQuery) ?? (knownFeature ? (knownFeature as RenderedMapFeature) : null);
+    let selectedFeature = cleanFeatureForParcelDisplay(renderedFeature ?? (feature?.geometry ? feature : null));
 
     if (!selectedFeature?.geometry && zoomToGeometry) {
         renderedFeature = await findFeatureAfterExternalLookup(manualQuery);
-        selectedFeature = renderedFeature;
+        selectedFeature = cleanFeatureForParcelDisplay(renderedFeature);
     }
 
     if (!selectedFeature?.geometry && zoomToGeometry) {
         renderedFeature = await findFeatureAfterRegionalJump(manualQuery);
-        selectedFeature = renderedFeature;
+        selectedFeature = cleanFeatureForParcelDisplay(renderedFeature);
     }
 
     if (selectedFeature?.geometry) {
@@ -846,6 +850,17 @@ function clearSelectedParcelRouteState(): void {
     clearSelectedFeature();
 }
 
+function clearMapHoverState(): void {
+    const map = mapInstance.value;
+
+    if (map) {
+        map.getCanvas().style.cursor = '';
+    }
+
+    hoverTooltip.value = null;
+    updateHoveredFeature(null);
+}
+
 function bindMapInteractions(map: maplibregl.Map): void {
     map.on('click', async (event) => {
         const feature = findInteractiveFeature(map, event.point);
@@ -867,24 +882,21 @@ function bindMapInteractions(map: maplibregl.Map): void {
     });
 
     map.on('mouseleave', () => {
-        map.getCanvas().style.cursor = '';
-        hoverTooltip.value = null;
-        updateHoveredFeature(null);
+        clearMapHoverState();
     });
 }
 
 function findInteractiveFeature(map: maplibregl.Map, point: maplibregl.PointLike): RenderedMapFeature | undefined {
-    const zoom = map.getZoom();
-    const layerPriority = zoom >= 11
-        ? ['external-kadastr-land-fill', 'external-kadastr-polygons-fill']
-        : ['external-kadastr-polygons-fill', 'parcel-fill'];
+    const layerPriority = interactiveLayersForZoom(map.getZoom());
 
     for (const layerId of layerPriority) {
         if (!map.getLayer(layerId)) {
             continue;
         }
 
-        const feature = map.queryRenderedFeatures(point, { layers: [layerId] })[0] as RenderedMapFeature | undefined;
+        const feature = bestInteractiveFeatureAtPoint(
+            map.queryRenderedFeatures(point, { layers: [layerId] }) as RenderedMapFeature[],
+        );
 
         if (feature?.geometry) {
             return feature;
@@ -892,6 +904,26 @@ function findInteractiveFeature(map: maplibregl.Map, point: maplibregl.PointLike
     }
 
     return undefined;
+}
+
+function interactiveLayersForZoom(zoom: number): string[] {
+    return zoom >= 11
+        ? ['external-kadastr-land-fill', 'external-kadastr-polygons-fill']
+        : ['external-kadastr-polygons-fill', 'parcel-fill'];
+}
+
+function bestInteractiveFeatureAtPoint(features: RenderedMapFeature[]): RenderedMapFeature | undefined {
+    const candidates = features
+        .filter((feature) => feature.geometry)
+        .map((feature, index) => ({
+            feature,
+            index,
+            area: displayGeometryArea(feature.geometry),
+        }))
+        .filter((candidate) => candidate.area > 0)
+        .sort((left, right) => right.area - left.area || left.index - right.index);
+
+    return candidates[0]?.feature ?? features.find((feature) => feature.geometry);
 }
 
 function tooltipFromFeature(feature: RenderedMapFeature, point: maplibregl.PointLike): HoverTooltip {
@@ -1193,6 +1225,96 @@ function signedRingArea(ring: [number, number][]): number {
     }, 0) / 2;
 }
 
+function displayGeometryArea(geometry: Geometry | null | undefined): number {
+    if (!geometry) {
+        return 0;
+    }
+
+    if (geometry.type === 'Polygon') {
+        return polygonDisplayArea(geometry.coordinates as [number, number][][]);
+    }
+
+    if (geometry.type === 'MultiPolygon') {
+        return geometry.coordinates.reduce(
+            (sum, polygon) => sum + polygonDisplayArea(polygon as [number, number][][]),
+            0,
+        );
+    }
+
+    return 0;
+}
+
+function polygonDisplayArea(polygon: [number, number][][]): number {
+    const exteriorArea = Math.abs(signedRingArea(polygon[0] ?? []));
+    const holesArea = polygon
+        .slice(1)
+        .reduce((sum, ring) => sum + Math.abs(signedRingArea(ring)), 0);
+
+    return Math.max(0, exteriorArea - holesArea);
+}
+
+function cleanFeatureForParcelDisplay(feature: Feature<Geometry> | null | undefined): Feature<Geometry> | null {
+    if (!feature?.geometry) {
+        return null;
+    }
+
+    const geometry = cleanGeometryForParcelDisplay(feature.geometry);
+
+    if (!geometry) {
+        return null;
+    }
+
+    return {
+        ...toPlainFeature(feature),
+        geometry,
+    };
+}
+
+function cleanGeometryForParcelDisplay(geometry: Geometry): Geometry | null {
+    if (geometry.type === 'Polygon') {
+        const exteriorRing = cleanExteriorRing(geometry.coordinates[0] as [number, number][]);
+
+        return exteriorRing ? { type: 'Polygon', coordinates: [exteriorRing] } : null;
+    }
+
+    if (geometry.type === 'MultiPolygon') {
+        const polygons = geometry.coordinates
+            .map((polygon) => cleanExteriorRing(polygon[0] as [number, number][]))
+            .filter((ring): ring is [number, number][] => ring !== null)
+            .map((ring) => ({
+                ring,
+                area: Math.abs(signedRingArea(ring)),
+            }))
+            .sort((left, right) => right.area - left.area);
+
+        const largestArea = polygons[0]?.area ?? 0;
+
+        if (largestArea <= 0) {
+            return null;
+        }
+
+        return { type: 'Polygon', coordinates: [polygons[0].ring] };
+    }
+
+    return geometry;
+}
+
+function cleanExteriorRing(ring: [number, number][] | undefined): [number, number][] | null {
+    if (!ring || ring.length < 4) {
+        return null;
+    }
+
+    const cleanedRing = ring.map((coordinate) => [coordinate[0], coordinate[1]] as [number, number]);
+    const first = cleanedRing[0];
+    const last = cleanedRing[cleanedRing.length - 1];
+
+    if (first[0] !== last[0] || first[1] !== last[1]) {
+        cleanedRing.push([first[0], first[1]]);
+    }
+
+    return Math.abs(signedRingArea(cleanedRing)) > 0 ? cleanedRing : null;
+}
+
 function distanceMeters(from: [number, number], to: [number, number]): number {
     const earthRadiusMeters = 6371008.8;
     const fromLat = from[1] * Math.PI / 180;
@@ -1327,24 +1449,21 @@ function parcelPointLabels(): string[] {
 
 async function selectRenderedFeature(feature: RenderedMapFeature): Promise<void> {
     const properties = feature.properties ?? {};
-    const selectedFeature = toPlainFeature(feature);
     const cadastralNumber = stringProperty(properties.cadastral_number)
         ?? stringProperty(properties.cadnum)
         ?? stringProperty(properties.cad_num)
         ?? stringProperty(properties.parcels)
         ?? stringProperty(properties.id)
         ?? 'Вибраний полігон';
+    const displayFeature = cadastralNumber === 'Вибраний полігон'
+        ? feature
+        : bestRenderedFeatureByNumber(cadastralNumber) ?? feature;
+    const selectedFeature = cleanFeatureForParcelDisplay(toPlainFeature(displayFeature)) ?? toPlainFeature(displayFeature);
 
     highlightSelectedFeature(selectedFeature);
     searchStatus.value = '';
 
-    if (stringProperty(properties.cadastral_number)) {
-        await searchParcel(false, selectedFeature, cadastralNumber);
-
-        return;
-    }
-
-    const parcel = parcelFromFeature(feature, cadastralNumber);
+    const parcel = parcelFromFeature(displayFeature, cadastralNumber);
     selectedParcel.value = parcel;
     selectedSketch.value = sketchFromGeometry(selectedFeature.geometry, parcel);
     setParcelRoute(cadastralNumber);
@@ -1374,6 +1493,10 @@ function setParcelRoute(cadastralNumber: string): void {
 }
 
 function findVisibleFeatureByNumber(cadastralNumber: string): RenderedMapFeature | null {
+    return bestRenderedFeatureByNumber(cadastralNumber);
+}
+
+function bestRenderedFeatureByNumber(cadastralNumber: string): RenderedMapFeature | null {
     const map = mapInstance.value;
 
     if (!map) {
@@ -1386,21 +1509,30 @@ function findVisibleFeatureByNumber(cadastralNumber: string): RenderedMapFeature
         'external-kadastr-polygons-fill',
         'parcel-fill',
     ];
+    const matches: RenderedMapFeature[] = [];
 
     for (const layerId of layers) {
         if (!map.getLayer(layerId)) {
             continue;
         }
 
-        const match = map.queryRenderedFeatures({ layers: [layerId] })
-            .find((feature) => featureMatchesNumber(feature as RenderedMapFeature, normalizedNumber)) as RenderedMapFeature | undefined;
-
-        if (match?.geometry) {
-            return match;
-        }
+        matches.push(
+            ...map.queryRenderedFeatures({ layers: [layerId] })
+                .filter((feature) => featureMatchesNumber(feature as RenderedMapFeature, normalizedNumber)) as RenderedMapFeature[],
+        );
     }
 
-    return null;
+    return bestFeatureByDisplayArea(matches);
+}
+
+function bestFeatureByDisplayArea(features: RenderedMapFeature[]): RenderedMapFeature | null {
+    return features
+        .filter((feature) => Boolean(feature.geometry))
+        .map((feature) => ({
+            feature,
+            area: displayGeometryArea(feature.geometry),
+        }))
+        .sort((left, right) => right.area - left.area)[0]?.feature ?? null;
 }
 
 function featureMatchesNumber(feature: RenderedMapFeature, normalizedNumber: string): boolean {
