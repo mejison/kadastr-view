@@ -37,31 +37,31 @@
                 </div>
             </header>
 
-            <aside class="parcel-panel">
+            <aside v-if="selectedParcel" class="parcel-panel">
                 <div class="panel-header">
                     <MapPinned :size="19" aria-hidden="true" />
                     <div>
                         <p class="eyebrow">Вибрана ділянка</p>
-                        <h2>{{ selectedParcel?.cadastral_number ?? 'Демо-ділянка' }}</h2>
+                        <h2>{{ selectedParcel.cadastral_number }}</h2>
                     </div>
                 </div>
 
                 <dl class="parcel-grid">
                     <div>
                         <dt>Площа</dt>
-                        <dd>{{ selectedParcel?.area.declared ?? '—' }} га</dd>
+                        <dd>{{ selectedParcel.area.declared }} га</dd>
                     </div>
                     <div>
                         <dt>Статус</dt>
-                        <dd>{{ selectedParcel?.freshness_status ?? 'demo' }}</dd>
+                        <dd>{{ selectedParcel.freshness_status }}</dd>
                     </div>
                     <div>
                         <dt>Призначення</dt>
-                        <dd>{{ selectedParcel?.purpose?.name ?? selectedParcel?.purpose?.code ?? 'Не вказано' }}</dd>
+                        <dd>{{ selectedParcel.purpose?.name ?? selectedParcel.purpose?.code ?? 'Не вказано' }}</dd>
                     </div>
                     <div>
                         <dt>Оновлено</dt>
-                        <dd>{{ selectedParcel?.source.updated_at ?? '2026-07-14' }}</dd>
+                        <dd>{{ selectedParcel.source.updated_at }}</dd>
                     </div>
                 </dl>
 
@@ -163,7 +163,7 @@ const searchQuery = ref('');
 const searchStatus = ref('');
 const selectedParcel = ref<Parcel | null>(null);
 const hoverTooltip = ref<HoverTooltip | null>(null);
-const legendCollapsed = ref(false);
+const legendCollapsed = ref(true);
 const mapStatus = ref('завантаження карти');
 const externalKadastrEnabled = true;
 const ukraineCenter: [number, number] = [31.1656, 48.3794];
