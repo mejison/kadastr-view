@@ -15,6 +15,11 @@ from = "/api/v1/*"
 to = "/.netlify/functions/api/:splat"
 status = 200
 
+[[redirects]]
+from = "/dilyanka/*"
+to = "/index.html"
+status = 200
+
 [[headers]]
 for = "/sitemap.xml"
 [headers.values]

@@ -85,7 +85,7 @@ input {
 .brand-block,
 .search-wrap,
 .parcel-panel,
-.legend-panel {
+.layer-panel {
     pointer-events: auto;
     border: 1px solid rgb(32 35 29 / 12%);
     background: rgb(255 255 255 / 92%);
@@ -101,12 +101,12 @@ input {
     border-radius: 8px;
 }
 
-.status-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 999px;
-    background: #2f9e44;
-    box-shadow: 0 0 0 5px rgb(47 158 68 / 15%);
+.brand-logo {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px rgb(32 35 29 / 8%);
 }
 
 .eyebrow {
@@ -188,7 +188,9 @@ h2 {
     z-index: 2;
     top: 92px;
     right: 16px;
-    width: min(360px, calc(100vw - 32px));
+    width: min(440px, calc(100vw - 32px));
+    max-height: calc(100dvh - 124px);
+    overflow: auto;
     border-radius: 8px;
     padding: 16px;
 }
@@ -214,6 +216,10 @@ h2 {
     background: rgb(244 241 232 / 72%);
 }
 
+.parcel-grid .is-wide {
+    grid-column: 1 / -1;
+}
+
 .parcel-grid dt {
     color: #6b705f;
     font-size: 12px;
@@ -231,30 +237,129 @@ h2 {
     hyphens: auto;
 }
 
-.disclaimer {
-    margin: 0;
-    color: #7a5d20;
-    font-size: 12px;
-    line-height: 1.45;
+.parcel-sketch {
+    position: relative;
+    margin-top: 16px;
+    border: 1px solid rgb(32 35 29 / 10%);
+    border-radius: 8px;
+    padding: 12px;
+    background: rgb(248 249 247 / 86%);
 }
 
-.legend-panel {
+.parcel-sketch-actions {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 6px;
+}
+
+.parcel-sketch-actions button {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    border: 1px solid rgb(32 35 29 / 10%);
+    border-radius: 6px;
+    background: rgb(255 255 255 / 90%);
+    color: #20231d;
+    box-shadow: 0 8px 18px rgb(32 35 29 / 8%);
+}
+
+.parcel-sketch-actions button:hover {
+    background: rgb(31 111 84 / 10%);
+}
+
+.parcel-sketch-diagram {
+    display: block;
+    width: 100%;
+    height: 190px;
+}
+
+.parcel-sketch-diagram polygon {
+    fill: rgb(47 158 68 / 10%);
+    stroke: none;
+}
+
+.parcel-sketch-diagram polyline {
+    fill: none;
+    stroke: #149d45;
+    stroke-width: 2;
+    stroke-linejoin: round;
+}
+
+.parcel-sketch-diagram circle {
+    fill: #149d45;
+}
+
+.parcel-sketch-diagram text {
+    fill: #111827;
+    font-size: 12px;
+    font-weight: 760;
+    paint-order: stroke;
+    stroke: rgb(248 249 247 / 92%);
+    stroke-linejoin: round;
+    stroke-width: 3px;
+}
+
+.parcel-sketch-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 2px 0 12px;
+    color: #4b5563;
+    font-size: 14px;
+}
+
+.parcel-sketch-summary strong {
+    color: #111827;
+    font-weight: 800;
+}
+
+.parcel-sketch-edges {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 16px;
+    margin: 0;
+}
+
+.parcel-sketch-edges div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    min-width: 0;
+}
+
+.parcel-sketch-edges dt {
+    color: #4b5563;
+    font-size: 13px;
+}
+
+.parcel-sketch-edges dd {
+    margin: 0;
+    color: #111827;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.layer-panel {
     position: absolute;
     z-index: 2;
     left: 16px;
     bottom: 16px;
     right: auto;
-    width: min(360px, calc(100vw - 32px));
+    width: min(300px, calc(100vw - 32px));
     border-radius: 8px;
     padding: 16px;
 }
 
-.legend-panel.is-collapsed {
-    width: auto;
-    padding: 10px 12px;
+.layer-panel.is-collapsed {
+    width: 52px;
+    height: 52px;
+    padding: 10px;
 }
 
-.legend-header {
+.layer-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -262,17 +367,18 @@ h2 {
     margin-bottom: 12px;
 }
 
-.legend-header h2 {
+.layer-header h2 {
     font-size: 17px;
     font-weight: 760;
     line-height: 1.2;
 }
 
-.legend-panel.is-collapsed .legend-header {
+.layer-panel.is-collapsed .layer-header {
+    justify-content: center;
     margin-bottom: 0;
 }
 
-.legend-toggle {
+.layer-toggle {
     display: grid;
     width: 32px;
     height: 32px;
@@ -283,55 +389,100 @@ h2 {
     transition: background 150ms ease, transform 150ms ease;
 }
 
-.legend-toggle:hover {
+.layer-toggle:hover {
     background: rgb(31 111 84 / 10%);
 }
 
-.legend-toggle svg {
+.layer-toggle svg {
     transition: transform 150ms ease;
 }
 
-.legend-panel.is-collapsed .legend-toggle svg {
-    transform: rotate(180deg);
-}
-
-.legend-list {
+.layer-list {
     display: grid;
-    gap: 9px;
+    gap: 8px;
     margin: 0;
     padding: 0;
     list-style: none;
 }
 
-.legend-list li {
+.layer-list li {
+    min-width: 0;
+}
+
+.layer-list button {
     display: grid;
-    grid-template-columns: 24px minmax(0, 1fr);
+    grid-template-columns: 38px minmax(0, 1fr);
     align-items: center;
-    gap: 10px;
+    width: 100%;
+    gap: 11px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 8px;
     color: #20231d;
-    font-size: 14px;
-    font-weight: 650;
+    text-align: left;
     line-height: 1.2;
 }
 
-.legend-symbol {
-    --legend-color: #94a3b8;
-    display: grid;
-    width: 20px;
-    height: 20px;
-    place-items: center;
-    color: #18202b;
-    flex: none;
+.layer-list button:hover,
+.layer-list button.is-active {
+    border-color: rgb(31 111 84 / 20%);
+    background: rgb(31 111 84 / 8%);
 }
 
-.legend-symbol.swatch {
+.layer-list strong,
+.layer-list small {
+    display: block;
+}
+
+.layer-list strong {
+    font-size: 14px;
+    font-weight: 760;
+}
+
+.layer-list small {
+    margin-top: 2px;
+    color: #6b705f;
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.layer-preview {
+    display: block;
+    width: 38px;
+    height: 32px;
     border: 2px solid rgb(255 255 255 / 90%);
     border-radius: 5px;
-    background: var(--legend-color);
     box-shadow: 0 0 0 1px rgb(32 35 29 / 18%);
 }
 
+.layer-preview.is-osm {
+    background:
+        linear-gradient(35deg, transparent 44%, #e8a650 45% 52%, transparent 53%),
+        linear-gradient(120deg, transparent 46%, #9aa6ad 47% 54%, transparent 55%),
+        #eef2e8;
+}
+
+.layer-preview.is-light {
+    background:
+        linear-gradient(90deg, transparent 48%, #d6d8d2 49% 53%, transparent 54%),
+        linear-gradient(0deg, transparent 48%, #d6d8d2 49% 53%, transparent 54%),
+        #f8f7f1;
+}
+
+.layer-preview.is-relief {
+    background:
+        radial-gradient(circle at 68% 30%, #9fbe7f 0 24%, transparent 25%),
+        linear-gradient(135deg, #d6c286 0 35%, #8fb174 36% 66%, #d8e1c7 67%);
+}
+
+.layer-preview.is-satellite {
+    background:
+        radial-gradient(circle at 68% 32%, #6f8f4c 0 20%, transparent 21%),
+        linear-gradient(135deg, #243827, #49653c 45%, #7a8466);
+}
+
 .map-tooltip {
+    --tooltip-arrow-x: 50%;
     position: absolute;
     top: 0;
     left: 0;
@@ -345,17 +496,34 @@ h2 {
     padding: 14px 16px;
 }
 
+.map-tooltip.is-above {
+    translate: -50% -100%;
+}
+
+.map-tooltip.is-below {
+    translate: -50% 0;
+}
+
 .map-tooltip::after {
     position: absolute;
-    bottom: -9px;
-    left: 50%;
+    left: var(--tooltip-arrow-x);
     width: 18px;
     height: 18px;
     content: '';
     transform: translateX(-50%) rotate(45deg);
+    background: rgb(255 255 255 / 96%);
+}
+
+.map-tooltip.is-above::after {
+    bottom: -9px;
     border-right: 1px solid rgb(32 35 29 / 10%);
     border-bottom: 1px solid rgb(32 35 29 / 10%);
-    background: rgb(255 255 255 / 96%);
+}
+
+.map-tooltip.is-below::after {
+    top: -9px;
+    border-top: 1px solid rgb(32 35 29 / 10%);
+    border-left: 1px solid rgb(32 35 29 / 10%);
 }
 
 .map-tooltip dl {
@@ -406,7 +574,7 @@ h2 {
         width: auto;
     }
 
-    .legend-panel {
+    .layer-panel {
         right: auto;
         left: 12px;
         bottom: 12px;
@@ -414,28 +582,30 @@ h2 {
         padding: 14px;
     }
 
-    .legend-panel:not(.is-collapsed) {
+    .layer-panel:not(.is-collapsed) {
         right: 12px;
         bottom: 238px;
     }
 
-    .legend-panel.is-collapsed {
-        padding: 10px 12px;
+    .layer-panel.is-collapsed {
+        width: 48px;
+        height: 48px;
+        padding: 8px;
     }
 
-    .legend-list {
+    .layer-list {
         gap: 8px;
     }
 
-    .legend-list li {
-        grid-template-columns: 22px minmax(0, 1fr);
+    .layer-list button {
+        grid-template-columns: 34px minmax(0, 1fr);
         gap: 9px;
-        font-size: 13px;
+        padding: 8px;
     }
 
-    .legend-symbol {
-        width: 18px;
-        height: 18px;
+    .layer-preview {
+        width: 34px;
+        height: 30px;
     }
 
     .map-tooltip {

@@ -13,7 +13,7 @@
 
             <header class="topbar">
                 <div class="brand-block">
-                    <span class="status-dot"></span>
+                    <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true">
                     <div>
                         <p class="eyebrow">Карта земельних ділянок</p>
                         <h1>Kadastr View</h1>
@@ -52,12 +52,24 @@
                         <dd>{{ selectedParcel.area.declared }} га</dd>
                     </div>
                     <div>
-                        <dt>Статус</dt>
-                        <dd>{{ selectedParcel.freshness_status }}</dd>
+                        <dt>Форма власності</dt>
+                        <dd>{{ parcelOwnership(selectedParcel) }}</dd>
                     </div>
-                    <div>
-                        <dt>Призначення</dt>
-                        <dd>{{ selectedParcel.purpose?.name ?? selectedParcel.purpose?.code ?? 'Не вказано' }}</dd>
+                    <div class="is-wide">
+                        <dt>Цільове призначення</dt>
+                        <dd>{{ parcelPurpose(selectedParcel) }}</dd>
+                    </div>
+                    <div class="is-wide">
+                        <dt>Вид використання</dt>
+                        <dd>{{ parcelUseType(selectedParcel) }}</dd>
+                    </div>
+                    <div class="is-wide">
+                        <dt>Категорія</dt>
+                        <dd>{{ parcelCategory(selectedParcel) }}</dd>
+                    </div>
+                    <div class="is-wide">
+                        <dt>Адреса</dt>
+                        <dd>{{ parcelAddress(selectedParcel) }}</dd>
                     </div>
                     <div>
                         <dt>Оновлено</dt>
@@ -65,36 +77,75 @@
                     </div>
                 </dl>
 
-                <p class="disclaimer">
-                    Поточний шар містить відкриті довідкові геодані. Це не офіційний кадастровий витяг.
-                </p>
+                <section v-if="selectedSketch" class="parcel-sketch" aria-label="Схема меж ділянки">
+                    <div class="parcel-sketch-actions">
+                        <button
+                            type="button"
+                            title="Скачати схему ділянки"
+                            @click="downloadSelectedSketch"
+                        >
+                            <Download :size="16" aria-hidden="true" />
+                        </button>
+                    </div>
+                    <svg class="parcel-sketch-diagram" viewBox="0 0 260 190" role="img" aria-label="Контур вибраної ділянки">
+                        <polygon :points="selectedSketch.points" />
+                        <polyline :points="selectedSketch.closedPoints" />
+                        <g v-for="point in selectedSketch.vertices" :key="point.label">
+                            <circle :cx="point.x" :cy="point.y" r="4" />
+                            <text :x="point.labelX" :y="point.labelY" :text-anchor="point.anchor">{{ point.label }}</text>
+                        </g>
+                    </svg>
+                    <div class="parcel-sketch-summary">
+                        <span>Площа: <strong>{{ selectedSketch.area }}</strong></span>
+                        <span>Периметр: <strong>{{ selectedSketch.perimeter }}</strong></span>
+                    </div>
+                    <dl class="parcel-sketch-edges">
+                        <div v-for="edge in selectedSketch.edges" :key="edge.label">
+                            <dt>{{ edge.label }}</dt>
+                            <dd>{{ edge.length }}</dd>
+                        </div>
+                    </dl>
+                </section>
             </aside>
 
-            <aside :class="['legend-panel', { 'is-collapsed': legendCollapsed }]" aria-label="Умовні позначення карти">
-                <header class="legend-header">
-                    <h2>Умовні позначення</h2>
+            <aside :class="['layer-panel', { 'is-collapsed': layerPanelCollapsed }]" aria-label="Шари карти">
+                <header class="layer-header">
+                    <h2 v-if="!layerPanelCollapsed">Шари карти</h2>
                     <button
                         type="button"
-                        class="legend-toggle"
-                        :title="legendCollapsed ? 'Розгорнути легенду' : 'Згорнути легенду'"
-                        @click="legendCollapsed = !legendCollapsed"
+                        class="layer-toggle"
+                        :title="layerPanelCollapsed ? 'Відкрити шари карти' : 'Згорнути шари карти'"
+                        @click="layerPanelCollapsed = !layerPanelCollapsed"
                     >
-                        <ChevronLeft :size="18" aria-hidden="true" />
+                        <Layers v-if="layerPanelCollapsed" :size="20" aria-hidden="true" />
+                        <ChevronLeft v-else :size="18" aria-hidden="true" />
                     </button>
                 </header>
 
-                <ul v-if="!legendCollapsed" class="legend-list">
-                    <li v-for="item in legendItems" :key="item.label">
-                        <span :class="['legend-symbol', item.kind]" :style="{ '--legend-color': item.color }"></span>
-                        <span>{{ item.label }}</span>
+                <ul v-if="!layerPanelCollapsed" class="layer-list">
+                    <li v-for="item in baseMaps" :key="item.id">
+                        <button
+                            type="button"
+                            :class="{ 'is-active': selectedBaseMapId === item.id }"
+                            @click="setBaseMap(item.id)"
+                        >
+                            <span :class="['layer-preview', item.preview]"></span>
+                            <span>
+                                <strong>{{ item.label }}</strong>
+                                <small>{{ item.description }}</small>
+                            </span>
+                        </button>
                     </li>
                 </ul>
             </aside>
 
             <div
                 v-if="hoverTooltip"
-                class="map-tooltip"
-                :style="{ transform: `translate(${hoverTooltip.x}px, ${hoverTooltip.y}px)` }"
+                :class="['map-tooltip', `is-${hoverTooltip.placement}`]"
+                :style="{
+                    transform: `translate(${hoverTooltip.x}px, ${hoverTooltip.y}px)`,
+                    '--tooltip-arrow-x': `${hoverTooltip.arrowX}px`,
+                }"
                 role="tooltip"
             >
                 <dl>
@@ -112,6 +163,8 @@
 import { onMounted, ref, shallowRef } from 'vue';
 import {
     ChevronLeft,
+    Download,
+    Layers,
     MapPinned,
     Search,
 } from '@lucide/vue';
@@ -122,7 +175,10 @@ import { absoluteApiUrl, apiUrl } from './api';
 type Parcel = {
     cadastral_number: string;
     area: { declared: number; calculated: number; unit: string };
+    ownership_type?: { id: string | null; name: string | null } | null;
+    land_category?: { id: string | null; name: string | null } | null;
     purpose?: { code: string | null; name: string | null } | null;
+    address?: string | null;
     freshness_status: string;
     source: { name: string; updated_at: string; official: boolean };
     centroid: { lat: number; lng: number };
@@ -140,7 +196,44 @@ type TooltipRow = {
 type HoverTooltip = {
     x: number;
     y: number;
+    arrowX: number;
+    placement: 'above' | 'below';
     rows: TooltipRow[];
+};
+
+type SketchVertex = {
+    label: string;
+    x: number;
+    y: number;
+    labelX: number;
+    labelY: number;
+    anchor: 'start' | 'middle' | 'end';
+};
+
+type SketchLabelBox = {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+};
+
+type SketchLabelPosition = Pick<SketchVertex, 'labelX' | 'labelY' | 'anchor'> & {
+    box: SketchLabelBox;
+};
+
+type SketchEdge = {
+    label: string;
+    length: string;
+};
+
+type ParcelSketch = {
+    points: string;
+    closedPoints: string;
+    vertices: SketchVertex[];
+    edges: SketchEdge[];
+    area: string;
+    perimeter: string;
+    centroid: [number, number];
 };
 
 type ExternalLookup = {
@@ -157,13 +250,32 @@ type RegionHint = {
     name: string;
 };
 
+type SavedMapView = {
+    center: [number, number];
+    zoom: number;
+    bearing: number;
+    pitch: number;
+};
+
+type BaseMapId = 'osm' | 'light' | 'relief' | 'satellite';
+
+type BaseMap = {
+    id: BaseMapId;
+    layerId: string;
+    label: string;
+    description: string;
+    preview: string;
+};
+
 const mapContainer = ref<HTMLDivElement | null>(null);
 const mapInstance = shallowRef<maplibregl.Map | null>(null);
 const searchQuery = ref('');
 const searchStatus = ref('');
 const selectedParcel = ref<Parcel | null>(null);
+const selectedSketch = ref<ParcelSketch | null>(null);
 const hoverTooltip = ref<HoverTooltip | null>(null);
-const legendCollapsed = ref(true);
+const layerPanelCollapsed = ref(true);
+const selectedBaseMapId = ref<BaseMapId>('osm');
 const mapStatus = ref('завантаження карти');
 const externalKadastrEnabled = true;
 const ukraineCenter: [number, number] = [31.1656, 48.3794];
@@ -173,6 +285,38 @@ const ukraineNavigationBounds: [[number, number], [number, number]] = [
 ];
 const overviewParcelMinZoom = 8.5;
 const externalPolygonMinZoom = 10.75;
+const mapViewStorageKey = 'kadastr-view:map-view:v1';
+const baseMapStorageKey = 'kadastr-view:base-map:v1';
+const baseMaps: BaseMap[] = [
+    {
+        id: 'osm',
+        layerId: 'base-osm',
+        label: 'Дороги',
+        description: 'OpenStreetMap',
+        preview: 'is-osm',
+    },
+    {
+        id: 'light',
+        layerId: 'base-light',
+        label: 'Світла',
+        description: 'Carto Voyager',
+        preview: 'is-light',
+    },
+    {
+        id: 'relief',
+        layerId: 'base-relief',
+        label: 'Рельєф',
+        description: 'OpenTopoMap',
+        preview: 'is-relief',
+    },
+    {
+        id: 'satellite',
+        layerId: 'base-satellite',
+        label: 'Супутник',
+        description: 'Esri World Imagery',
+        preview: 'is-satellite',
+    },
+];
 const cadastralRegionHints: Record<string, RegionHint> = {
     '01': { center: [34.35, 45.2], zoom: 9, name: 'АР Крим' },
     '05': { center: [28.47, 49.23], zoom: 9, name: 'Вінницька область' },
@@ -202,13 +346,6 @@ const cadastralRegionHints: Record<string, RegionHint> = {
     '80': { center: [30.52, 50.45], zoom: 11, name: 'Київ' },
     '85': { center: [33.52, 44.61], zoom: 11, name: 'Севастополь' },
 };
-const legendItems = [
-    { label: 'Державна / комунальна власність', color: '#3388ff', kind: 'swatch' },
-    { label: 'Приватна власність', color: '#e69f00', kind: 'swatch' },
-    { label: 'Форма власності невідома', color: '#94a3b8', kind: 'swatch' },
-    { label: 'Водний ресурс', color: '#74b9ff', kind: 'swatch' },
-    { label: 'Вибрана ділянка', color: '#d90b12', kind: 'swatch' },
-];
 const landPurposeLabels: Record<string, string> = {
     '01.01': 'Для ведення товарного сільськогосподарського виробництва',
     '01.02': 'Для ведення фермерського господарства',
@@ -271,6 +408,9 @@ onMounted(() => {
         return;
     }
 
+    const savedView = loadSavedMapView();
+    selectedBaseMapId.value = loadSavedBaseMapId();
+    const initialRouteParcelNumber = parcelNumberFromRoute();
     const map = new maplibregl.Map({
         container: mapContainer.value,
         style: {
@@ -284,7 +424,39 @@ onMounted(() => {
                         'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
                     ],
                     tileSize: 256,
+                    maxzoom: 19,
                     attribution: '© OpenStreetMap contributors',
+                },
+                light: {
+                    type: 'raster',
+                    tiles: [
+                        'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                        'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                        'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                    ],
+                    tileSize: 256,
+                    maxzoom: 20,
+                    attribution: '© OpenStreetMap contributors © CARTO',
+                },
+                relief: {
+                    type: 'raster',
+                    tiles: [
+                        'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+                        'https://b.tile.opentopomap.org/{z}/{x}/{y}.png',
+                        'https://c.tile.opentopomap.org/{z}/{x}/{y}.png',
+                    ],
+                    tileSize: 256,
+                    maxzoom: 17,
+                    attribution: '© OpenStreetMap contributors, SRTM | OpenTopoMap',
+                },
+                satellite: {
+                    type: 'raster',
+                    tiles: [
+                        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                    ],
+                    tileSize: 256,
+                    maxzoom: 18,
+                    attribution: 'Source: Esri, Maxar, Earthstar Geographics',
                 },
             },
             layers: [
@@ -296,25 +468,73 @@ onMounted(() => {
                     },
                 },
                 {
-                    id: 'osm',
+                    id: 'base-osm',
                     type: 'raster',
                     source: 'osm',
+                    layout: {
+                        visibility: selectedBaseMapId.value === 'osm' ? 'visible' : 'none',
+                    },
+                    paint: {
+                        'raster-opacity': 1,
+                    },
+                },
+                {
+                    id: 'base-light',
+                    type: 'raster',
+                    source: 'light',
+                    layout: {
+                        visibility: selectedBaseMapId.value === 'light' ? 'visible' : 'none',
+                    },
+                    paint: {
+                        'raster-opacity': 1,
+                    },
+                },
+                {
+                    id: 'base-relief',
+                    type: 'raster',
+                    source: 'relief',
+                    layout: {
+                        visibility: selectedBaseMapId.value === 'relief' ? 'visible' : 'none',
+                    },
+                    paint: {
+                        'raster-opacity': 1,
+                    },
+                },
+                {
+                    id: 'base-satellite',
+                    type: 'raster',
+                    source: 'satellite',
+                    layout: {
+                        visibility: selectedBaseMapId.value === 'satellite' ? 'visible' : 'none',
+                    },
                     paint: {
                         'raster-opacity': 1,
                     },
                 },
             ],
         },
-        center: ukraineCenter,
-        zoom: 5.2,
+        center: savedView?.center ?? ukraineCenter,
+        zoom: savedView?.zoom ?? 5.2,
+        bearing: savedView?.bearing ?? 0,
+        pitch: savedView?.pitch ?? 0,
         minZoom: 5.2,
         maxZoom: 22,
         maxBounds: ukraineNavigationBounds,
         renderWorldCopies: false,
+        attributionControl: false,
     });
 
     mapInstance.value = map;
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
+    map.addControl(new maplibregl.FullscreenControl(), 'bottom-right');
+    map.addControl(new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: true,
+    }), 'bottom-right');
+    map.on('moveend', () => saveMapView(map));
+    window.addEventListener('popstate', () => {
+        void openParcelFromCurrentRoute(false);
+    });
 
     map.on('error', (event) => {
         console.error('MapLibre error', event.error);
@@ -327,14 +547,115 @@ onMounted(() => {
         const geojson = await loadParcelLayer();
         bindMapInteractions(map);
 
-        if (geojson.features.length > 0) {
+        if (initialRouteParcelNumber) {
+            await openParcelByNumber(initialRouteParcelNumber, true);
+        } else if (!savedView && geojson.features.length > 0) {
             map.fitBounds(boundsForFeatures(geojson.features), { padding: 72, duration: 0 });
         }
     });
 });
 
-async function searchParcel(zoomToGeometry = true, knownFeature?: Feature<Geometry>) {
-    const manualQuery = searchQuery.value.trim();
+function loadSavedBaseMapId(): BaseMapId {
+    const storedValue = window.localStorage.getItem(baseMapStorageKey);
+
+    return baseMaps.some((item) => item.id === storedValue) ? storedValue as BaseMapId : 'osm';
+}
+
+function setBaseMap(baseMapId: BaseMapId): void {
+    selectedBaseMapId.value = baseMapId;
+    window.localStorage.setItem(baseMapStorageKey, baseMapId);
+
+    const map = mapInstance.value;
+
+    if (!map) {
+        return;
+    }
+
+    for (const baseMap of baseMaps) {
+        if (map.getLayer(baseMap.layerId)) {
+            map.setLayoutProperty(baseMap.layerId, 'visibility', baseMap.id === baseMapId ? 'visible' : 'none');
+        }
+    }
+}
+
+function loadSavedMapView(): SavedMapView | null {
+    try {
+        const rawValue = window.localStorage.getItem(mapViewStorageKey);
+
+        if (!rawValue) {
+            return null;
+        }
+
+        const parsed = JSON.parse(rawValue) as Partial<SavedMapView>;
+        const center = parsed.center;
+
+        if (!Array.isArray(center) || center.length !== 2) {
+            return null;
+        }
+
+        const [lng, lat] = center;
+        const zoom = parsed.zoom;
+        const bearing = parsed.bearing ?? 0;
+        const pitch = parsed.pitch ?? 0;
+
+        if (
+            typeof lng !== 'number'
+            || typeof lat !== 'number'
+            || typeof zoom !== 'number'
+            || typeof bearing !== 'number'
+            || typeof pitch !== 'number'
+            || !Number.isFinite(lng)
+            || !Number.isFinite(lat)
+            || !Number.isFinite(zoom)
+            || !Number.isFinite(bearing)
+            || !Number.isFinite(pitch)
+            || !isWithinUkraineNavigationBounds([lng, lat])
+        ) {
+            return null;
+        }
+
+        return {
+            center: [lng, lat],
+            zoom: clamp(zoom, 5.2, 22),
+            bearing,
+            pitch: clamp(pitch, 0, 85),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function saveMapView(map: maplibregl.Map): void {
+    const center = map.getCenter();
+
+    if (!isWithinUkraineNavigationBounds([center.lng, center.lat])) {
+        return;
+    }
+
+    const value: SavedMapView = {
+        center: [center.lng, center.lat],
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+    };
+
+    window.localStorage.setItem(mapViewStorageKey, JSON.stringify(value));
+}
+
+function isWithinUkraineNavigationBounds(center: [number, number]): boolean {
+    const [[minLng, minLat], [maxLng, maxLat]] = ukraineNavigationBounds;
+    const [lng, lat] = center;
+
+    return lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat;
+}
+
+async function searchParcel(
+    zoomToGeometry = true,
+    knownFeature?: Feature<Geometry>,
+    queryOverride?: string,
+    updateRoute = true,
+) {
+    const manualQuery = (queryOverride ?? searchQuery.value).trim();
 
     if (manualQuery === '') {
         searchStatus.value = '';
@@ -365,11 +686,18 @@ async function searchParcel(zoomToGeometry = true, knownFeature?: Feature<Geomet
 
     if (selectedFeature?.geometry) {
         highlightSelectedFeature(selectedFeature);
-        selectedParcel.value = renderedFeature
+        const parcel = renderedFeature
             ? parcelFromFeature(renderedFeature, manualQuery)
             : payload.data;
+        selectedParcel.value = parcel;
+        selectedSketch.value = sketchFromGeometry(selectedFeature.geometry, parcel);
         searchStatus.value = 'Знайдено';
+
+        if (updateRoute) {
+            setParcelRoute(manualQuery);
+        }
     } else {
+        selectedSketch.value = null;
         searchStatus.value = 'Не знайдено. Потрібен глобальний індекс ділянок';
     }
 
@@ -491,6 +819,28 @@ async function submitSearch() {
     await searchParcel(true);
 }
 
+async function openParcelFromCurrentRoute(zoomToGeometry: boolean): Promise<void> {
+    const cadastralNumber = parcelNumberFromRoute();
+
+    if (!cadastralNumber) {
+        clearSelectedParcelRouteState();
+        return;
+    }
+
+    await openParcelByNumber(cadastralNumber, zoomToGeometry);
+}
+
+async function openParcelByNumber(cadastralNumber: string, zoomToGeometry: boolean): Promise<void> {
+    await searchParcel(zoomToGeometry, undefined, cadastralNumber, false);
+}
+
+function clearSelectedParcelRouteState(): void {
+    selectedParcel.value = null;
+    selectedSketch.value = null;
+    searchStatus.value = '';
+    clearSelectedFeature();
+}
+
 function bindMapInteractions(map: maplibregl.Map): void {
     map.on('click', async (event) => {
         const feature = findInteractiveFeature(map, event.point);
@@ -573,12 +923,401 @@ function tooltipFromFeature(feature: RenderedMapFeature, point: maplibregl.Point
     ].filter((row): row is TooltipRow => row !== null);
 
     const { x, y } = point as { x: number; y: number };
+    const mapWidth = mapContainer.value?.clientWidth ?? window.innerWidth;
+    const tooltipWidth = Math.min(340, Math.max(220, mapWidth - 32));
+    const estimatedHeight = 34 + rows.length * 27;
+    const placement: HoverTooltip['placement'] = y > estimatedHeight + 28 ? 'above' : 'below';
+    const tooltipCenterX = clamp(x, tooltipWidth / 2 + 16, mapWidth - tooltipWidth / 2 - 16);
+    const tooltipY = placement === 'above' ? y - 16 : y + 16;
+    const arrowX = clamp(x - (tooltipCenterX - tooltipWidth / 2), 18, tooltipWidth - 18);
 
     return {
-        x: x + 18,
-        y: y + 18,
+        x: tooltipCenterX,
+        y: tooltipY,
+        arrowX,
+        placement,
         rows,
     };
+}
+
+function clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
+}
+
+function sketchFromGeometry(geometry: Geometry, parcel: Parcel): ParcelSketch | null {
+    const ring = exteriorRingFromGeometry(geometry);
+
+    if (ring.length < 3) {
+        return null;
+    }
+
+    const openRing = removeClosingCoordinate(ring);
+    const averageLat = openRing.reduce((sum, coordinate) => sum + coordinate[1], 0) / openRing.length;
+    const projected = openRing.map(([lng, lat]) => ({
+        x: lng * Math.cos(averageLat * Math.PI / 180),
+        y: lat,
+        lng,
+        lat,
+    }));
+    const minX = Math.min(...projected.map((point) => point.x));
+    const maxX = Math.max(...projected.map((point) => point.x));
+    const minY = Math.min(...projected.map((point) => point.y));
+    const maxY = Math.max(...projected.map((point) => point.y));
+    const drawing = { left: 48, top: 18, width: 164, height: 100 };
+    const scale = Math.min(
+        drawing.width / Math.max(maxX - minX, 0.000001),
+        drawing.height / Math.max(maxY - minY, 0.000001),
+    );
+    const offsetX = drawing.left + (drawing.width - (maxX - minX) * scale) / 2;
+    const offsetY = drawing.top + (drawing.height - (maxY - minY) * scale) / 2;
+    const svgPoints = projected.map((point) => ({
+        x: offsetX + (point.x - minX) * scale,
+        y: offsetY + (maxY - point.y) * scale,
+        lng: point.lng,
+        lat: point.lat,
+    }));
+    const labels = parcelPointLabels();
+    const centerX = svgPoints.reduce((sum, point) => sum + point.x, 0) / svgPoints.length;
+    const centerY = svgPoints.reduce((sum, point) => sum + point.y, 0) / svgPoints.length;
+    const usedLabelBoxes: SketchLabelBox[] = [];
+    const vertices = svgPoints.slice(0, labels.length).map((point, index) => {
+        const label = labels[index];
+        const { box, ...labelPosition } = sketchVertexLabelPosition(
+            point,
+            centerX,
+            centerY,
+            label,
+            usedLabelBoxes,
+            svgPoints.slice(0, labels.length),
+        );
+
+        usedLabelBoxes.push(box);
+
+        return {
+            label,
+            x: point.x,
+            y: point.y,
+            ...labelPosition,
+        };
+    });
+    const edgeDistances = openRing.map((coordinate, index) => {
+        const nextCoordinate = openRing[(index + 1) % openRing.length];
+
+        return distanceMeters(coordinate, nextCoordinate);
+    });
+    const visibleEdgeCount = Math.min(edgeDistances.length, labels.length);
+    const edges = edgeDistances.slice(0, visibleEdgeCount).map((distance, index) => ({
+        label: `${labels[index]} -> ${labels[(index + 1) % labels.length]}`,
+        length: formatMeters(distance),
+    }));
+
+    if (edgeDistances.length > visibleEdgeCount) {
+        edges.push({
+            label: `Ще ${edgeDistances.length - visibleEdgeCount} стор.`,
+            length: '',
+        });
+    }
+
+    const points = svgPoints.map((point) => `${roundSvg(point.x)},${roundSvg(point.y)}`).join(' ');
+
+    return {
+        points,
+        closedPoints: `${points} ${roundSvg(svgPoints[0].x)},${roundSvg(svgPoints[0].y)}`,
+        vertices,
+        edges,
+        area: formatArea(parcel.area.declared) ?? 'Дані відсутні',
+        perimeter: formatMeters(edgeDistances.reduce((sum, distance) => sum + distance, 0)),
+        centroid: centroidFromRing(openRing),
+    };
+}
+
+function downloadSelectedSketch(): void {
+    if (!selectedSketch.value || !selectedParcel.value) {
+        return;
+    }
+
+    const canvas = document.createElement('canvas');
+    const scale = 2;
+    canvas.width = 520 * scale;
+    canvas.height = 520 * scale;
+
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+        return;
+    }
+
+    context.scale(scale, scale);
+    drawRoundedRect(context, 0, 0, 520, 520, 16, '#f8f9f7');
+    context.fillStyle = '#111827';
+    context.font = '700 20px Arial, sans-serif';
+    context.fillText(selectedParcel.value.cadastral_number, 28, 42);
+
+    context.save();
+    context.translate(0, 36);
+    context.scale(2, 2);
+    drawSketchShape(context, selectedSketch.value);
+    context.restore();
+
+    context.fillStyle = '#4b5563';
+    context.font = '400 18px Arial, sans-serif';
+    context.fillText('Площа:', 28, 338);
+    context.fillText('Периметр:', 268, 338);
+    context.fillStyle = '#111827';
+    context.font = '700 18px Arial, sans-serif';
+    context.fillText(selectedSketch.value.area, 94, 338);
+    context.fillText(selectedSketch.value.perimeter, 360, 338);
+
+    context.font = '400 17px Arial, sans-serif';
+    selectedSketch.value.edges.forEach((edge, index) => {
+        const column = index % 2;
+        const row = Math.floor(index / 2);
+        const x = column === 0 ? 28 : 268;
+        const y = 382 + row * 30;
+
+        context.fillStyle = '#4b5563';
+        context.font = '400 17px Arial, sans-serif';
+        context.fillText(edge.label, x, y);
+        context.fillStyle = '#111827';
+        context.font = '700 17px Arial, sans-serif';
+        context.textAlign = 'right';
+        context.fillText(edge.length, x + 196, y);
+        context.textAlign = 'left';
+    });
+
+    const link = document.createElement('a');
+
+    link.href = canvas.toDataURL('image/png');
+    link.download = `dilyanka-${selectedParcel.value.cadastral_number}.png`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+}
+
+function centroidFromRing(ring: [number, number][]): [number, number] {
+    const sums = ring.reduce((accumulator, coordinate) => ({
+        lng: accumulator.lng + coordinate[0],
+        lat: accumulator.lat + coordinate[1],
+    }), { lng: 0, lat: 0 });
+
+    return [sums.lng / ring.length, sums.lat / ring.length];
+}
+
+function drawSketchShape(context: CanvasRenderingContext2D, sketch: ParcelSketch): void {
+    const points = sketch.points.split(' ').map((point) => {
+        const [x, y] = point.split(',').map(Number);
+
+        return { x, y };
+    });
+
+    if (points.length === 0) {
+        return;
+    }
+
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    context.closePath();
+    context.fillStyle = 'rgba(47, 158, 68, 0.1)';
+    context.fill();
+    context.strokeStyle = '#149d45';
+    context.lineWidth = 2;
+    context.lineJoin = 'round';
+    context.stroke();
+
+    for (const point of sketch.vertices) {
+        context.beginPath();
+        context.arc(point.x, point.y, 4, 0, Math.PI * 2);
+        context.fillStyle = '#149d45';
+        context.fill();
+        context.fillStyle = '#111827';
+        context.font = '700 13px Arial, sans-serif';
+        context.textAlign = point.anchor === 'middle' ? 'center' : point.anchor;
+        context.fillText(point.label, point.labelX, point.labelY);
+        context.textAlign = 'left';
+    }
+}
+
+function drawRoundedRect(
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number,
+    fill: string,
+): void {
+    context.beginPath();
+    context.roundRect(x, y, width, height, radius);
+    context.fillStyle = fill;
+    context.fill();
+}
+
+function exteriorRingFromGeometry(geometry: Geometry): [number, number][] {
+    if (geometry.type === 'Polygon') {
+        return geometry.coordinates[0] as [number, number][];
+    }
+
+    if (geometry.type === 'MultiPolygon') {
+        const rings = geometry.coordinates
+            .map((polygon) => polygon[0] as [number, number][])
+            .filter((ring) => ring.length >= 4);
+
+        return rings.sort((left, right) => Math.abs(signedRingArea(right)) - Math.abs(signedRingArea(left)))[0] ?? [];
+    }
+
+    return [];
+}
+
+function removeClosingCoordinate(ring: [number, number][]): [number, number][] {
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+
+    if (first && last && first[0] === last[0] && first[1] === last[1]) {
+        return ring.slice(0, -1);
+    }
+
+    return ring;
+}
+
+function signedRingArea(ring: [number, number][]): number {
+    return ring.reduce((sum, coordinate, index) => {
+        const nextCoordinate = ring[(index + 1) % ring.length];
+
+        return sum + coordinate[0] * nextCoordinate[1] - nextCoordinate[0] * coordinate[1];
+    }, 0) / 2;
+}
+
+function distanceMeters(from: [number, number], to: [number, number]): number {
+    const earthRadiusMeters = 6371008.8;
+    const fromLat = from[1] * Math.PI / 180;
+    const toLat = to[1] * Math.PI / 180;
+    const deltaLat = (to[1] - from[1]) * Math.PI / 180;
+    const deltaLng = (to[0] - from[0]) * Math.PI / 180;
+    const a = Math.sin(deltaLat / 2) ** 2
+        + Math.cos(fromLat) * Math.cos(toLat) * Math.sin(deltaLng / 2) ** 2;
+
+    return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatMeters(value: number): string {
+    const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+
+    return `${new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 1 }).format(rounded)} м`;
+}
+
+function roundSvg(value: number): number {
+    return Math.round(value * 10) / 10;
+}
+
+function sketchVertexLabelPosition(
+    point: { x: number; y: number },
+    centerX: number,
+    centerY: number,
+    label: string,
+    usedBoxes: SketchLabelBox[],
+    allPoints: Array<{ x: number; y: number }>,
+): SketchLabelPosition {
+    const deltaX = point.x - centerX;
+    const deltaY = point.y - centerY;
+    const length = Math.hypot(deltaX, deltaY) || 1;
+    const directionX = deltaX / length;
+    const directionY = deltaY / length;
+    const candidates: Array<{ dx: number; dy: number; anchor: SketchVertex['anchor'] }> = [
+        { dx: -7, dy: -8, anchor: 'end' },
+        { dx: 7, dy: -8, anchor: 'start' },
+        { dx: 11, dy: 3, anchor: 'start' },
+        { dx: -11, dy: 3, anchor: 'end' },
+        { dx: 0, dy: -12, anchor: 'middle' },
+        { dx: 0, dy: 16, anchor: 'middle' },
+        { dx: 9, dy: 14, anchor: 'start' },
+        { dx: -9, dy: 14, anchor: 'end' },
+        { dx: 17, dy: -4, anchor: 'start' },
+        { dx: -17, dy: -4, anchor: 'end' },
+        { dx: 19, dy: -16, anchor: 'start' },
+        { dx: -19, dy: -16, anchor: 'end' },
+        { dx: 19, dy: 21, anchor: 'start' },
+        { dx: -19, dy: 21, anchor: 'end' },
+    ];
+
+    const scoredCandidates = candidates.map((candidate) => {
+        const rawLabelX = point.x + candidate.dx;
+        const rawLabelY = point.y + candidate.dy;
+        const labelX = clamp(rawLabelX, 14, 246);
+        const labelY = clamp(rawLabelY, 16, 176);
+        const preferredDirectionPenalty = Math.max(
+            0,
+            1 - ((candidate.dx * directionX + candidate.dy * directionY) / Math.max(Math.hypot(candidate.dx, candidate.dy), 1)),
+        );
+        const boundaryPenalty = Math.abs(rawLabelX - labelX) + Math.abs(rawLabelY - labelY);
+        const distance = Math.hypot(candidate.dx, candidate.dy);
+        const box = sketchLabelBox(labelX, labelY, label, candidate.anchor);
+        const overlap = usedBoxes.reduce((sum, usedBox) => sum + sketchBoxOverlapArea(box, usedBox), 0);
+        const ownDistance = Math.hypot(labelX - point.x, labelY - point.y);
+        const nearestOtherDistance = allPoints
+            .filter((candidatePoint) => candidatePoint !== point)
+            .reduce((nearest, candidatePoint) => Math.min(
+                nearest,
+                Math.hypot(labelX - candidatePoint.x, labelY - candidatePoint.y),
+            ), Number.POSITIVE_INFINITY);
+        const foreignPointPenalty = nearestOtherDistance < ownDistance + 3
+            ? (ownDistance + 3 - nearestOtherDistance) * 20
+            : 0;
+
+        return {
+            labelX,
+            labelY,
+            anchor: candidate.anchor,
+            box,
+            score: overlap * 7000
+                + foreignPointPenalty
+                + distance * 0.38
+                + preferredDirectionPenalty * 7
+                + boundaryPenalty * 12,
+        };
+    }).sort((left, right) => left.score - right.score);
+
+    const bestCandidate = scoredCandidates[0];
+
+    return {
+        labelX: roundSvg(bestCandidate.labelX),
+        labelY: roundSvg(bestCandidate.labelY),
+        anchor: bestCandidate.anchor,
+        box: bestCandidate.box,
+    };
+}
+
+function sketchLabelBox(
+    labelX: number,
+    labelY: number,
+    label: string,
+    anchor: SketchVertex['anchor'],
+): SketchLabelBox {
+    const width = label.length > 1 ? 25 : 19;
+    const height = 21;
+    const left = anchor === 'middle'
+        ? labelX - width / 2
+        : anchor === 'end'
+            ? labelX - width
+            : labelX;
+
+    return {
+        left: left - 2,
+        right: left + width + 2,
+        top: labelY - height + 1,
+        bottom: labelY + 5,
+    };
+}
+
+function sketchBoxOverlapArea(first: SketchLabelBox, second: SketchLabelBox): number {
+    const width = Math.max(0, Math.min(first.right, second.right) - Math.max(first.left, second.left));
+    const height = Math.max(0, Math.min(first.bottom, second.bottom) - Math.max(first.top, second.top));
+
+    return width * height;
+}
+
+function parcelPointLabels(): string[] {
+    return ['A', 'Б', 'В', 'Г', 'Ґ', 'Д', 'Е', 'Є', 'Ж', 'З', 'И', 'І'];
 }
 
 async function selectRenderedFeature(feature: RenderedMapFeature): Promise<void> {
@@ -595,12 +1334,38 @@ async function selectRenderedFeature(feature: RenderedMapFeature): Promise<void>
     searchStatus.value = '';
 
     if (stringProperty(properties.cadastral_number)) {
-        await searchParcel(false, selectedFeature);
+        await searchParcel(false, selectedFeature, cadastralNumber);
 
         return;
     }
 
-    selectedParcel.value = parcelFromFeature(feature, cadastralNumber);
+    const parcel = parcelFromFeature(feature, cadastralNumber);
+    selectedParcel.value = parcel;
+    selectedSketch.value = sketchFromGeometry(selectedFeature.geometry, parcel);
+    setParcelRoute(cadastralNumber);
+}
+
+function parcelNumberFromRoute(): string | null {
+    const match = window.location.pathname.match(/^\/dilyanka\/([^/?#]+)/);
+    const rawNumber = match?.[1];
+
+    return rawNumber ? decodeURIComponent(rawNumber).trim() : null;
+}
+
+function setParcelRoute(cadastralNumber: string): void {
+    if (cadastralNumber === 'Вибраний полігон') {
+        return;
+    }
+
+    const encodedNumber = encodeURIComponent(cadastralNumber).replace(/%3A/gi, ':');
+    const nextPath = `/dilyanka/${encodedNumber}`;
+    const nextUrl = `${nextPath}${window.location.search}${window.location.hash}`;
+
+    if (window.location.pathname === nextPath) {
+        return;
+    }
+
+    window.history.pushState({ cadastralNumber }, '', nextUrl);
 }
 
 function findVisibleFeatureByNumber(cadastralNumber: string): RenderedMapFeature | null {
@@ -651,12 +1416,15 @@ function parcelFromFeature(feature: RenderedMapFeature, cadastralNumber: string)
     const ownership = stringProperty(properties.ownership)
         ?? stringProperty(properties.ownership_type)
         ?? ownershipLabel(stringProperty(properties.ownership_category));
+    const category = stringProperty(properties.category)
+        ?? stringProperty(properties.land_category);
     const purposeCode = stringProperty(properties.purpose_code)
         ?? stringProperty(properties.purpose);
     const purposeName = purposeLabel(purposeCode)
         ?? stringProperty(properties.purpose_name)
         ?? stringProperty(properties.use)
         ?? stringProperty(properties.landuse);
+    const address = stringProperty(properties.address);
     const sourceName = stringProperty(properties.source_name)
         ?? (feature.source === 'external-kadastr' ? 'kadastrova-karta vector tiles' : 'Відкритий геошар');
 
@@ -667,10 +1435,13 @@ function parcelFromFeature(feature: RenderedMapFeature, cadastralNumber: string)
             calculated: 0,
             unit: 'ha',
         },
+        ownership_type: ownership ? { id: null, name: ownership } : null,
+        land_category: category ? { id: null, name: category } : null,
         purpose: purposeCode || purposeName ? {
             code: purposeCode,
             name: purposeName,
         } : null,
+        address,
         freshness_status: ownership ?? 'open_reference',
         source: {
             name: sourceName,
@@ -679,6 +1450,42 @@ function parcelFromFeature(feature: RenderedMapFeature, cadastralNumber: string)
         },
         centroid: { lat: 0, lng: 0 },
     };
+}
+
+function parcelOwnership(parcel: Parcel): string {
+    return parcel.ownership_type?.name
+        ?? parcel.freshness_status
+        ?? 'Дані відсутні';
+}
+
+function parcelPurpose(parcel: Parcel): string {
+    return parcel.purpose?.name
+        ?? purposeLabel(parcel.purpose?.code ?? null)
+        ?? 'Дані відсутні';
+}
+
+function parcelUseType(parcel: Parcel): string {
+    const purpose = parcelPurpose(parcel);
+
+    if (!parcel.purpose?.code) {
+        return purpose;
+    }
+
+    if (purpose === 'Дані відсутні') {
+        return parcel.purpose.code;
+    }
+
+    return `${parcel.purpose.code} ${purpose}`;
+}
+
+function parcelCategory(parcel: Parcel): string {
+    return parcel.land_category?.name ?? 'Дані відсутні';
+}
+
+function parcelAddress(parcel: Parcel): string {
+    const address = parcel.address?.trim();
+
+    return address && address !== 'Україна' ? address : 'Дані відсутні';
 }
 
 function stringProperty(value: unknown): string | null {
@@ -1090,6 +1897,17 @@ function highlightSelectedFeature(feature: Feature<Geometry>): void {
         moveLayerToTop(map, 'parcel-selected-fill');
         moveLayerToTop(map, 'parcel-selected-line');
     }
+}
+
+function clearSelectedFeature(): void {
+    const map = mapInstance.value;
+
+    if (!map) {
+        return;
+    }
+
+    const selectedSource = map.getSource('selected-parcel') as maplibregl.GeoJSONSource | undefined;
+    selectedSource?.setData(emptyFeatureCollection());
 }
 
 function moveLayerToTop(map: maplibregl.Map, layerId: string): void {
