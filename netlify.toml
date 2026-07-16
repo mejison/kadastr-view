@@ -16,12 +16,49 @@ to = "/.netlify/functions/api/:splat"
 status = 200
 
 [[redirects]]
-from = "/dilyanka/*"
-to = "/index.html"
+from = "/sitemap-parcels.xml"
+to = "/.netlify/functions/sitemap-parcels"
 status = 200
+force = true
+
+[[redirects]]
+from = "/dilyanka/*"
+to = "/.netlify/functions/seo-page/dilyanka/:splat"
+status = 200
+force = true
+
+[[redirects]]
+from = "/oblast/*"
+to = "/.netlify/functions/seo-page/oblast/:splat"
+status = 200
+force = true
+
+[[redirects]]
+from = "/raion/*"
+to = "/.netlify/functions/seo-page/raion/:splat"
+status = 200
+force = true
+
+[[redirects]]
+from = "/hromada/*"
+to = "/.netlify/functions/seo-page/hromada/:splat"
+status = 200
+force = true
+
+[[redirects]]
+from = "/settlement/*"
+to = "/.netlify/functions/seo-page/settlement/:splat"
+status = 200
+force = true
 
 [[headers]]
 for = "/sitemap.xml"
+[headers.values]
+Content-Type = "application/xml; charset=utf-8"
+Cache-Control = "public, max-age=3600"
+
+[[headers]]
+for = "/sitemap-static.xml"
 [headers.values]
 Content-Type = "application/xml; charset=utf-8"
 Cache-Control = "public, max-age=3600"

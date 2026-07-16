@@ -310,6 +310,12 @@ type RegionHint = {
     name: string;
 };
 
+type TerritoryRoute = {
+    type: 'oblast';
+    slug: string;
+    hint: RegionHint;
+};
+
 type SavedMapView = {
     center: [number, number];
     zoom: number;
@@ -421,6 +427,35 @@ const cadastralRegionHints: Record<string, RegionHint> = {
     '80': { center: [30.52, 50.45], zoom: 11, name: 'Київ' },
     '85': { center: [33.52, 44.61], zoom: 11, name: 'Севастополь' },
 };
+const oblastRouteHints: Record<string, RegionHint> = {
+    crimea: { center: [34.35, 45.2], zoom: 8.2, name: 'АР Крим' },
+    vinnytska: { center: [28.47, 49.23], zoom: 8.2, name: 'Вінницька область' },
+    volynska: { center: [25.32, 50.75], zoom: 8.4, name: 'Волинська область' },
+    dnipropetrovska: { center: [35.05, 48.46], zoom: 8.1, name: 'Дніпропетровська область' },
+    donetska: { center: [37.8, 48.02], zoom: 8.1, name: 'Донецька область' },
+    zhytomyrska: { center: [28.66, 50.25], zoom: 8.2, name: 'Житомирська область' },
+    zakarpatska: { center: [22.3, 48.62], zoom: 8.5, name: 'Закарпатська область' },
+    zaporizka: { center: [35.17, 47.84], zoom: 8.2, name: 'Запорізька область' },
+    'ivano-frankivska': { center: [24.71, 48.92], zoom: 8.5, name: 'Івано-Франківська область' },
+    kyivska: { center: [30.52, 50.35], zoom: 8.2, name: 'Київська область' },
+    kirovohradska: { center: [32.26, 48.51], zoom: 8.2, name: 'Кіровоградська область' },
+    luhanska: { center: [39.31, 48.57], zoom: 8.2, name: 'Луганська область' },
+    lvivska: { center: [24.03, 49.84], zoom: 8.2, name: 'Львівська область' },
+    mykolaivska: { center: [31.99, 46.98], zoom: 8.2, name: 'Миколаївська область' },
+    odeska: { center: [30.73, 46.48], zoom: 7.9, name: 'Одеська область' },
+    poltavska: { center: [34.55, 49.59], zoom: 8.2, name: 'Полтавська область' },
+    rivnenska: { center: [26.25, 50.62], zoom: 8.4, name: 'Рівненська область' },
+    sumska: { center: [34.8, 50.91], zoom: 8.2, name: 'Сумська область' },
+    ternopilska: { center: [25.59, 49.55], zoom: 8.6, name: 'Тернопільська область' },
+    kharkivska: { center: [36.23, 49.99], zoom: 8.2, name: 'Харківська область' },
+    khersonska: { center: [32.62, 46.64], zoom: 8.2, name: 'Херсонська область' },
+    khmelnytska: { center: [26.99, 49.42], zoom: 8.3, name: 'Хмельницька область' },
+    cherkaska: { center: [32.06, 49.44], zoom: 8.3, name: 'Черкаська область' },
+    chernivetska: { center: [25.94, 48.29], zoom: 8.8, name: 'Чернівецька область' },
+    chernihivska: { center: [31.29, 51.5], zoom: 8.1, name: 'Чернігівська область' },
+    kyiv: { center: [30.52, 50.45], zoom: 10.5, name: 'Київ' },
+    sevastopol: { center: [33.52, 44.61], zoom: 10.2, name: 'Севастополь' },
+};
 const landPurposeLabels: Record<string, string> = {
     '01.01': 'Для ведення товарного сільськогосподарського виробництва',
     '01.02': 'Для ведення фермерського господарства',
@@ -494,6 +529,7 @@ onMounted(() => {
     const savedView = loadSavedMapView();
     selectedBaseMapId.value = loadSavedBaseMapId();
     const initialRouteParcelNumber = parcelNumberFromRoute();
+    const initialTerritoryRoute = territoryRouteFromPath();
     const map = new maplibregl.Map({
         container: mapContainer.value,
         style: {
@@ -613,7 +649,7 @@ onMounted(() => {
     setupGeolocateControl(map);
     map.on('moveend', () => saveMapView(map));
     window.addEventListener('popstate', () => {
-        void openParcelFromCurrentRoute(false);
+        void openCurrentRoute(false);
     });
 
     map.on('error', (event) => {
@@ -629,6 +665,8 @@ onMounted(() => {
 
         if (initialRouteParcelNumber) {
             await openParcelByNumber(initialRouteParcelNumber, true);
+        } else if (initialTerritoryRoute) {
+            openTerritoryRoute(initialTerritoryRoute, false);
         } else if (!savedView && geojson.features.length > 0) {
             map.fitBounds(boundsForFeatures(geojson.features), { padding: 72, duration: 0 });
         }
@@ -995,6 +1033,24 @@ async function submitSearch() {
     await searchParcel(true);
 }
 
+async function openCurrentRoute(zoomToGeometry: boolean): Promise<void> {
+    const cadastralNumber = parcelNumberFromRoute();
+
+    if (cadastralNumber) {
+        await openParcelByNumber(cadastralNumber, zoomToGeometry);
+        return;
+    }
+
+    const territoryRoute = territoryRouteFromPath();
+
+    if (territoryRoute) {
+        openTerritoryRoute(territoryRoute, zoomToGeometry);
+        return;
+    }
+
+    clearSelectedParcelRouteState();
+}
+
 async function openParcelFromCurrentRoute(zoomToGeometry: boolean): Promise<void> {
     const cadastralNumber = parcelNumberFromRoute();
 
@@ -1008,6 +1064,24 @@ async function openParcelFromCurrentRoute(zoomToGeometry: boolean): Promise<void
 
 async function openParcelByNumber(cadastralNumber: string, zoomToGeometry: boolean): Promise<void> {
     await searchParcel(zoomToGeometry, undefined, cadastralNumber, false);
+}
+
+function openTerritoryRoute(route: TerritoryRoute, animated: boolean): void {
+    const map = mapInstance.value;
+
+    clearSelectedParcelRouteState();
+    searchQuery.value = '';
+    searchStatus.value = route.hint.name;
+
+    if (!map) {
+        return;
+    }
+
+    map.easeTo({
+        center: route.hint.center,
+        zoom: route.hint.zoom,
+        duration: animated ? 650 : 0,
+    });
 }
 
 function clearSelectedParcelRouteState(): void {
@@ -2179,6 +2253,15 @@ function parcelNumberFromRoute(): string | null {
     const rawNumber = match?.[1];
 
     return rawNumber ? decodeURIComponent(rawNumber).trim() : null;
+}
+
+function territoryRouteFromPath(): TerritoryRoute | null {
+    const match = window.location.pathname.match(/^\/oblast\/([^/?#]+)/);
+    const rawSlug = match?.[1];
+    const slug = rawSlug ? decodeURIComponent(rawSlug).trim() : '';
+    const hint = oblastRouteHints[slug];
+
+    return hint ? { type: 'oblast', slug, hint } : null;
 }
 
 function setParcelRoute(cadastralNumber: string): void {
