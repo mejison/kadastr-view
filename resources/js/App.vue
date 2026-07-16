@@ -138,7 +138,7 @@
                         @click="layerPanelCollapsed = !layerPanelCollapsed"
                     >
                         <Layers v-if="layerPanelCollapsed" :size="20" aria-hidden="true" />
-                        <ChevronLeft v-else :size="18" aria-hidden="true" />
+                        <X v-else :size="18" aria-hidden="true" />
                     </button>
                 </header>
 
@@ -182,7 +182,6 @@
 <script setup lang="ts">
 import { onMounted, ref, shallowRef } from 'vue';
 import {
-    ChevronLeft,
     Download,
     Layers,
     MapPinned,
