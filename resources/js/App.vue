@@ -62,66 +62,94 @@
                     </button>
                 </div>
 
-                <dl class="parcel-grid">
-                    <div>
-                        <dt>Площа</dt>
-                        <dd>{{ selectedParcel.area.declared }} га</dd>
-                    </div>
-                    <div>
-                        <dt>Форма власності</dt>
-                        <dd>{{ parcelOwnership(selectedParcel) }}</dd>
-                    </div>
-                    <div class="is-wide">
-                        <dt>Цільове призначення</dt>
-                        <dd>{{ parcelPurpose(selectedParcel) }}</dd>
-                    </div>
-                    <div class="is-wide">
-                        <dt>Вид використання</dt>
-                        <dd>{{ parcelUseType(selectedParcel) }}</dd>
-                    </div>
-                    <div class="is-wide">
-                        <dt>Категорія</dt>
-                        <dd>{{ parcelCategory(selectedParcel) }}</dd>
-                    </div>
-                    <div class="is-wide">
-                        <dt>Адреса</dt>
-                        <dd>{{ parcelAddress(selectedParcel) }}</dd>
-                    </div>
-                    <div>
-                        <dt>Оновлено</dt>
-                        <dd>{{ selectedParcel.source.updated_at }}</dd>
-                    </div>
-                </dl>
-
-                <section v-if="selectedSketch" class="parcel-sketch" aria-label="Схема меж ділянки">
-                    <div class="parcel-sketch-actions">
-                        <button
-                            type="button"
-                            title="Скачати схему ділянки"
-                            @click="downloadSelectedSketch"
-                        >
-                            <Download :size="16" aria-hidden="true" />
-                        </button>
-                    </div>
-                    <svg class="parcel-sketch-diagram" viewBox="0 0 260 190" role="img" aria-label="Контур вибраної ділянки">
-                        <polygon :points="selectedSketch.points" />
-                        <polyline :points="selectedSketch.closedPoints" />
-                        <g v-for="point in selectedSketch.vertices" :key="point.label">
-                            <circle :cx="point.x" :cy="point.y" r="4" />
-                            <text :x="point.labelX" :y="point.labelY" :text-anchor="point.anchor">{{ point.label }}</text>
-                        </g>
-                    </svg>
-                    <div class="parcel-sketch-summary">
-                        <span>Площа: <strong>{{ selectedSketch.area }}</strong></span>
-                        <span>Периметр: <strong>{{ selectedSketch.perimeter }}</strong></span>
-                    </div>
-                    <dl class="parcel-sketch-edges">
-                        <div v-for="edge in selectedSketch.edges" :key="edge.label">
-                            <dt>{{ edge.label }}</dt>
-                            <dd>{{ edge.length }}</dd>
+                <div class="parcel-panel-body">
+                    <dl class="parcel-grid">
+                        <div>
+                            <dt>Площа</dt>
+                            <dd>{{ selectedParcel.area.declared }} га</dd>
+                        </div>
+                        <div>
+                            <dt>Форма власності</dt>
+                            <dd>{{ parcelOwnership(selectedParcel) }}</dd>
+                        </div>
+                        <div class="is-wide">
+                            <dt>Цільове призначення</dt>
+                            <dd>{{ parcelPurpose(selectedParcel) }}</dd>
+                        </div>
+                        <div class="is-wide">
+                            <dt>Вид використання</dt>
+                            <dd>{{ parcelUseType(selectedParcel) }}</dd>
+                        </div>
+                        <div class="is-wide">
+                            <dt>Категорія</dt>
+                            <dd>{{ parcelCategory(selectedParcel) }}</dd>
+                        </div>
+                        <div class="is-wide">
+                            <dt>Адреса</dt>
+                            <dd>{{ parcelAddress(selectedParcel) }}</dd>
                         </div>
                     </dl>
-                </section>
+
+                    <section v-if="selectedSketch" class="parcel-sketch" aria-label="Схема меж ділянки">
+                        <div class="parcel-sketch-actions">
+                            <button
+                                type="button"
+                                title="Скачати схему ділянки"
+                                @click="downloadSelectedSketch"
+                            >
+                                <Download :size="16" aria-hidden="true" />
+                            </button>
+                        </div>
+                        <svg class="parcel-sketch-diagram" viewBox="0 0 260 190" role="img" aria-label="Контур вибраної ділянки">
+                            <g v-for="(ring, ringIndex) in selectedSketch.rings" :key="`${ringIndex}-${ring.points}`">
+                                <polygon :class="{ 'is-hole': ring.isHole }" :points="ring.points" />
+                                <polyline :class="{ 'is-hole': ring.isHole }" :points="closedSketchRingPoints(ring.points)" />
+                            </g>
+                            <g v-for="point in selectedSketch.vertices" :key="point.label">
+                                <circle :cx="point.x" :cy="point.y" r="4" />
+                                <text :x="point.labelX" :y="point.labelY" :text-anchor="point.anchor">{{ point.label }}</text>
+                            </g>
+                        </svg>
+                        <div class="parcel-sketch-summary">
+                            <span>Площа: <strong>{{ selectedSketch.area }}</strong></span>
+                            <span>Периметр: <strong>{{ selectedSketch.perimeter }}</strong></span>
+                        </div>
+                        <dl class="parcel-sketch-edges">
+                            <div v-for="edge in selectedSketch.edges" :key="edge.label">
+                                <dt>{{ edge.label }}</dt>
+                                <dd>{{ edge.length }}</dd>
+                            </div>
+                        </dl>
+                    </section>
+
+                    <section class="parcel-actions" aria-label="Дії з ділянкою">
+                        <a
+                            class="parcel-action is-primary"
+                            :href="selectedRouteUrl"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            <Route :size="17" aria-hidden="true" />
+                            <span>Прокласти маршрут</span>
+                        </a>
+                        <button type="button" class="parcel-action" @click="copySelectedParcelLink">
+                            <Copy :size="17" aria-hidden="true" />
+                            <span>Копіювати посилання</span>
+                        </button>
+                        <button type="button" class="parcel-action" @click="shareSelectedParcel">
+                            <Share2 :size="17" aria-hidden="true" />
+                            <span>Поділитися</span>
+                        </button>
+                        <button type="button" class="parcel-action" @click="downloadSelectedParcelGeoJson">
+                            <FileJson :size="17" aria-hidden="true" />
+                            <span>Завантажити GeoJSON</span>
+                        </button>
+                        <button type="button" class="parcel-action" @click="downloadSelectedParcelKml">
+                            <FileDown :size="17" aria-hidden="true" />
+                            <span>Завантажити KML</span>
+                        </button>
+                    </section>
+                </div>
             </aside>
 
             <aside
@@ -180,12 +208,17 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, shallowRef } from 'vue';
+import { computed, onMounted, ref, shallowRef } from 'vue';
 import {
+    Copy,
     Download,
+    FileDown,
+    FileJson,
     Layers,
     MapPinned,
+    Route,
     Search,
+    Share2,
     X,
 } from '@lucide/vue';
 import maplibregl, { LngLatBounds } from 'maplibre-gl';
@@ -247,9 +280,15 @@ type SketchEdge = {
     length: string;
 };
 
+type SketchRing = {
+    points: string;
+    isHole: boolean;
+};
+
 type ParcelSketch = {
     points: string;
     closedPoints: string;
+    rings: SketchRing[];
     vertices: SketchVertex[];
     edges: SketchEdge[];
     area: string;
@@ -294,6 +333,7 @@ const searchQuery = ref('');
 const searchStatus = ref('');
 const selectedParcel = ref<Parcel | null>(null);
 const selectedSketch = ref<ParcelSketch | null>(null);
+const selectedParcelFeature = ref<Feature<Geometry> | null>(null);
 const hoverTooltip = ref<HoverTooltip | null>(null);
 const layerPanelCollapsed = ref(true);
 const selectedBaseMapId = ref<BaseMapId>('osm');
@@ -437,6 +477,14 @@ const landPurposeLabels: Record<string, string> = {
     '14.01': 'Для розміщення, будівництва та експлуатації обʼєктів енергогенеруючих підприємств',
     '14.02': 'Для розміщення, будівництва та експлуатації будівель і споруд обʼєктів передачі електричної та теплової енергії',
 };
+
+const selectedRouteUrl = computed(() => {
+    const center = selectedParcelRouteCenter();
+
+    return center
+        ? `https://www.google.com/maps/dir/?api=1&destination=${center[1]},${center[0]}`
+        : 'https://www.google.com/maps';
+});
 
 onMounted(() => {
     if (!mapContainer.value) {
@@ -812,8 +860,12 @@ async function searchParcel(
         const parcel = renderedFeature
             ? parcelFromFeature(renderedFeature, manualQuery)
             : payload.data;
+        const sketchFeature = renderedFeature
+            ? selectedMapFeatureForSketch(renderedFeature, manualQuery) ?? selectedFeature
+            : selectedFeature;
         selectedParcel.value = parcel;
-        selectedSketch.value = sketchFromGeometry(selectedFeature.geometry, parcel);
+        selectedSketch.value = sketchFromGeometry(sketchFeature.geometry, parcel);
+        selectedParcelFeature.value = toPlainFeature(sketchFeature);
         searchStatus.value = 'Знайдено';
 
         if (updateRoute) {
@@ -821,6 +873,7 @@ async function searchParcel(
         }
     } else {
         selectedSketch.value = null;
+        selectedParcelFeature.value = null;
         searchStatus.value = 'Не знайдено. Потрібен глобальний індекс ділянок';
     }
 
@@ -960,6 +1013,7 @@ async function openParcelByNumber(cadastralNumber: string, zoomToGeometry: boole
 function clearSelectedParcelRouteState(): void {
     selectedParcel.value = null;
     selectedSketch.value = null;
+    selectedParcelFeature.value = null;
     searchStatus.value = '';
     clearSelectedFeature();
 }
@@ -1048,38 +1102,42 @@ function bestInteractiveFeatureAtPoint(
     const candidates = features
         .filter((feature) => feature.geometry)
         .map((feature, index) => ({
-            feature: featureWithGeometryAtPoint(feature, lngLat),
+            feature: fullFeatureWithHitGeometry(feature, lngLat),
             index,
         }))
-        .filter((candidate) => candidate.feature?.geometry)
+        .filter((candidate) => candidate.feature?.feature.geometry)
         .map((candidate) => ({
             ...candidate,
-            feature: candidate.feature as RenderedMapFeature,
-            area: displayGeometryArea(candidate.feature?.geometry),
+            feature: candidate.feature as { feature: RenderedMapFeature; hitGeometry: Geometry },
+            area: displayGeometryArea(candidate.feature?.hitGeometry),
         }))
         .filter((candidate) => candidate.area > 0)
         .sort((left, right) => left.area - right.area || left.index - right.index);
 
-    return candidates[0]?.feature ?? features.find((feature) => feature.geometry);
+    return candidates[0]?.feature.feature ?? features.find((feature) => feature.geometry);
 }
 
-function featureWithGeometryAtPoint(
+function fullFeatureWithHitGeometry(
     feature: RenderedMapFeature,
     lngLat: [number, number],
-): RenderedMapFeature | null {
+): { feature: RenderedMapFeature; hitGeometry: Geometry } | null {
     if (!feature.geometry) {
         return null;
     }
 
-    const geometry = geometryAtPoint(feature.geometry, lngLat) ?? cleanGeometryForParcelDisplay(feature.geometry);
+    const hitGeometry = geometryAtPoint(feature.geometry, lngLat);
+    const displayGeometry = cleanGeometryForParcelDisplay(feature.geometry);
 
-    if (!geometry) {
+    if (!hitGeometry || !displayGeometry) {
         return null;
     }
 
     return {
-        ...feature,
-        geometry,
+        feature: {
+            ...feature,
+            geometry: displayGeometry,
+        },
+        hitGeometry,
     };
 }
 
@@ -1165,25 +1223,39 @@ function clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
 }
 
+function closedSketchRingPoints(points: string): string {
+    const firstPoint = points.split(' ')[0];
+
+    return firstPoint ? `${points} ${firstPoint}` : points;
+}
+
 function sketchFromGeometry(geometry: Geometry, parcel: Parcel): ParcelSketch | null {
-    const ring = exteriorRingFromGeometry(geometry);
+    const polygons = sketchPolygonsFromGeometry(geometry);
+    const exteriorRings = polygons
+        .map((polygon) => polygon[0])
+        .filter((candidateRing): candidateRing is [number, number][] => Boolean(candidateRing?.length));
+    const ring = sketchOutlineRing(exteriorRings);
 
     if (ring.length < 3) {
         return null;
     }
 
     const openRing = removeClosingCoordinate(ring);
-    const averageLat = openRing.reduce((sum, coordinate) => sum + coordinate[1], 0) / openRing.length;
-    const projected = openRing.map(([lng, lat]) => ({
+    const allOpenRings = [openRing];
+    const allCoordinates = allOpenRings.flat();
+    const averageLat = allCoordinates.reduce((sum, coordinate) => sum + coordinate[1], 0) / allCoordinates.length;
+    const projectCoordinate = ([lng, lat]: [number, number]) => ({
         x: lng * Math.cos(averageLat * Math.PI / 180),
         y: lat,
         lng,
         lat,
-    }));
-    const minX = Math.min(...projected.map((point) => point.x));
-    const maxX = Math.max(...projected.map((point) => point.x));
-    const minY = Math.min(...projected.map((point) => point.y));
-    const maxY = Math.max(...projected.map((point) => point.y));
+    });
+    const projectedRings = allOpenRings.map((candidateRing) => candidateRing.map(projectCoordinate));
+    const projectedCoordinates = projectedRings.flat();
+    const minX = Math.min(...projectedCoordinates.map((point) => point.x));
+    const maxX = Math.max(...projectedCoordinates.map((point) => point.x));
+    const minY = Math.min(...projectedCoordinates.map((point) => point.y));
+    const maxY = Math.max(...projectedCoordinates.map((point) => point.y));
     const drawing = { left: 48, top: 18, width: 164, height: 100 };
     const scale = Math.min(
         drawing.width / Math.max(maxX - minX, 0.000001),
@@ -1191,12 +1263,21 @@ function sketchFromGeometry(geometry: Geometry, parcel: Parcel): ParcelSketch | 
     );
     const offsetX = drawing.left + (drawing.width - (maxX - minX) * scale) / 2;
     const offsetY = drawing.top + (drawing.height - (maxY - minY) * scale) / 2;
-    const svgPoints = projected.map((point) => ({
+    const toSvgPoint = (point: ReturnType<typeof projectCoordinate>) => ({
         x: offsetX + (point.x - minX) * scale,
         y: offsetY + (maxY - point.y) * scale,
         lng: point.lng,
         lat: point.lat,
+    });
+    const svgRings = projectedRings.map((candidateRing) => ({
+        points: candidateRing
+            .map(toSvgPoint)
+            .map((point) => `${roundSvg(point.x)},${roundSvg(point.y)}`)
+            .join(' '),
+        isHole: false,
     }));
+    const labelProjected = openRing.map(projectCoordinate).map(toSvgPoint);
+    const svgPoints = labelProjected;
     const labels = parcelPointLabels();
     const centerX = svgPoints.reduce((sum, point) => sum + point.x, 0) / svgPoints.length;
     const centerY = svgPoints.reduce((sum, point) => sum + point.y, 0) / svgPoints.length;
@@ -1239,11 +1320,12 @@ function sketchFromGeometry(geometry: Geometry, parcel: Parcel): ParcelSketch | 
         });
     }
 
-    const points = svgPoints.map((point) => `${roundSvg(point.x)},${roundSvg(point.y)}`).join(' ');
+    const points = svgRings[0]?.points ?? '';
 
     return {
         points,
         closedPoints: `${points} ${roundSvg(svgPoints[0].x)},${roundSvg(svgPoints[0].y)}`,
+        rings: svgRings,
         vertices,
         edges,
         area: formatArea(parcel.area.declared) ?? 'Дані відсутні',
@@ -1315,6 +1397,267 @@ function downloadSelectedSketch(): void {
     link.remove();
 }
 
+function selectedParcelRouteCenter(): [number, number] | null {
+    if (selectedSketch.value) {
+        return selectedSketch.value.centroid;
+    }
+
+    const centroid = selectedParcel.value?.centroid;
+
+    return typeof centroid?.lng === 'number' && typeof centroid?.lat === 'number'
+        ? [centroid.lng, centroid.lat]
+        : null;
+}
+
+async function copySelectedParcelLink(): Promise<void> {
+    const url = selectedParcelPublicUrl();
+
+    try {
+        await navigator.clipboard.writeText(url);
+    } catch {
+        copyTextWithFallback(url);
+    }
+
+    searchStatus.value = 'Посилання скопійовано';
+}
+
+async function shareSelectedParcel(): Promise<void> {
+    const url = selectedParcelPublicUrl();
+    const title = selectedParcel.value
+        ? `Ділянка ${selectedParcel.value.cadastral_number}`
+        : 'KadastrView';
+
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title,
+                text: 'Переглянути земельну ділянку на KadastrView',
+                url,
+            });
+            return;
+        } catch (error) {
+            if (isShareAbortError(error)) {
+                return;
+            }
+        }
+    }
+
+    try {
+        await navigator.clipboard.writeText(url);
+    } catch {
+        copyTextWithFallback(url);
+    }
+
+    searchStatus.value = 'Посилання скопійовано';
+}
+
+function isShareAbortError(error: unknown): boolean {
+    return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function selectedParcelPublicUrl(): string {
+    const cadastralNumber = selectedParcel.value?.cadastral_number;
+
+    if (!cadastralNumber || cadastralNumber === 'Вибраний полігон') {
+        return window.location.href;
+    }
+
+    const encodedNumber = encodeURIComponent(cadastralNumber).replace(/%3A/gi, ':');
+
+    return `${window.location.origin}/dilyanka/${encodedNumber}`;
+}
+
+function copyTextWithFallback(value: string): void {
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+}
+
+async function downloadSelectedParcelGeoJson(): Promise<void> {
+    const feature = await selectedDownloadFeature();
+
+    if (!feature) {
+        searchStatus.value = 'Геометрія ділянки недоступна';
+        return;
+    }
+
+    downloadTextFile(
+        `dilyanka-${selectedParcelFileName()}.geojson`,
+        JSON.stringify(feature, null, 2),
+        'application/geo+json;charset=utf-8',
+    );
+    searchStatus.value = 'GeoJSON завантажено';
+}
+
+async function downloadSelectedParcelKml(): Promise<void> {
+    const feature = await selectedDownloadFeature();
+
+    if (!feature) {
+        searchStatus.value = 'Геометрія ділянки недоступна';
+        return;
+    }
+
+    downloadTextFile(
+        `dilyanka-${selectedParcelFileName()}.kml`,
+        kmlFromFeature(feature),
+        'application/vnd.google-earth.kml+xml;charset=utf-8',
+    );
+    searchStatus.value = 'KML завантажено';
+}
+
+async function selectedDownloadFeature(): Promise<Feature<Geometry> | null> {
+    const parcel = selectedParcel.value;
+
+    if (!parcel) {
+        return null;
+    }
+
+    if (!selectedParcelFeature.value?.geometry) {
+        selectedParcelFeature.value = await loadSelectedParcelGeometry(parcel.cadastral_number);
+    }
+
+    if (!selectedParcelFeature.value?.geometry) {
+        return null;
+    }
+
+    return {
+        ...toPlainFeature(selectedParcelFeature.value),
+        properties: {
+            ...(selectedParcelFeature.value.properties ?? {}),
+            cadastral_number: parcel.cadastral_number,
+            area_declared: parcel.area.declared,
+            ownership_type: parcelOwnership(parcel),
+            purpose_name: parcelPurpose(parcel),
+            land_category: parcelCategory(parcel),
+            address: parcelAddress(parcel),
+            source_updated_at: parcel.source.updated_at ?? null,
+            url: selectedParcelPublicUrl(),
+        },
+    };
+}
+
+async function loadSelectedParcelGeometry(cadastralNumber: string): Promise<Feature<Geometry> | null> {
+    if (!cadastralNumber || cadastralNumber === 'Вибраний полігон') {
+        return null;
+    }
+
+    try {
+        const response = await fetch(apiUrl(`/api/v1/parcels/${encodeURIComponent(cadastralNumber)}/geometry`));
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const payload = await response.json() as { data?: Feature<Geometry> | null };
+
+        return payload.data?.geometry
+            ? cleanFeatureForParcelDisplay(payload.data) ?? toPlainFeature(payload.data)
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+function selectedParcelFileName(): string {
+    return (selectedParcel.value?.cadastral_number ?? 'selected')
+        .replace(/[^0-9A-Za-zА-Яа-яІіЇїЄєҐґ_-]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'selected';
+}
+
+function downloadTextFile(fileName: string, content: string, type: string): void {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.download = fileName;
+    link.href = url;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function kmlFromFeature(feature: Feature<Geometry>): string {
+    const parcel = selectedParcel.value;
+    const name = xmlEscape(parcel?.cadastral_number ?? 'Вибрана ділянка');
+    const description = xmlEscape([
+        `Площа: ${parcel?.area.declared ?? 'Дані відсутні'} га`,
+        `Власність: ${parcel ? parcelOwnership(parcel) : 'Дані відсутні'}`,
+        `Категорія: ${parcel ? parcelCategory(parcel) : 'Дані відсутні'}`,
+        `Адреса: ${parcel ? parcelAddress(parcel) : 'Дані відсутні'}`,
+        `URL: ${selectedParcelPublicUrl()}`,
+    ].join('\n'));
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${name}</name>
+    <Placemark>
+      <name>${name}</name>
+      <description>${description}</description>
+      <Style>
+        <LineStyle><color>ff120bd9</color><width>3</width></LineStyle>
+        <PolyStyle><color>55120bd9</color></PolyStyle>
+      </Style>
+      ${kmlGeometry(feature.geometry)}
+    </Placemark>
+  </Document>
+</kml>`;
+}
+
+function kmlGeometry(geometry: Geometry): string {
+    if (geometry.type === 'Polygon') {
+        return kmlPolygon(geometry.coordinates as [number, number][][]);
+    }
+
+    if (geometry.type === 'MultiPolygon') {
+        const polygons = geometry.coordinates
+            .map((polygon) => kmlPolygon(polygon as [number, number][][]))
+            .join('\n');
+
+        return `<MultiGeometry>${polygons}</MultiGeometry>`;
+    }
+
+    return '<Point><coordinates>0,0,0</coordinates></Point>';
+}
+
+function kmlPolygon(polygon: [number, number][][]): string {
+    const [outerRing, ...innerRings] = polygon;
+    const innerBoundaries = innerRings
+        .map((ring) => `
+        <innerBoundaryIs>
+          <LinearRing><coordinates>${kmlCoordinates(ring)}</coordinates></LinearRing>
+        </innerBoundaryIs>`)
+        .join('');
+
+    return `<Polygon>
+        <outerBoundaryIs>
+          <LinearRing><coordinates>${kmlCoordinates(outerRing ?? [])}</coordinates></LinearRing>
+        </outerBoundaryIs>${innerBoundaries}
+      </Polygon>`;
+}
+
+function kmlCoordinates(ring: [number, number][]): string {
+    return ring
+        .map(([lng, lat]) => `${lng},${lat},0`)
+        .join(' ');
+}
+
+function xmlEscape(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+}
+
 function centroidFromRing(ring: [number, number][]): [number, number] {
     const sums = ring.reduce((accumulator, coordinate) => ({
         lng: accumulator.lng + coordinate[0],
@@ -1325,13 +1668,18 @@ function centroidFromRing(ring: [number, number][]): [number, number] {
 }
 
 function drawSketchShape(context: CanvasRenderingContext2D, sketch: ParcelSketch): void {
-    const points = sketch.points.split(' ').map((point) => {
-        const [x, y] = point.split(',').map(Number);
+    const rings = sketch.rings.map((ring) => ({
+        isHole: ring.isHole,
+        points: ring.points.split(' ').map((point) => {
+            const [x, y] = point.split(',').map(Number);
 
-        return { x, y };
-    });
+            return { x, y };
+        }),
+    }));
+    const [outerRing, ...otherRings] = rings;
+    const points = outerRing?.points;
 
-    if (points.length === 0) {
+    if (!points || points.length === 0) {
         return;
     }
 
@@ -1345,6 +1693,22 @@ function drawSketchShape(context: CanvasRenderingContext2D, sketch: ParcelSketch
     context.lineWidth = 2;
     context.lineJoin = 'round';
     context.stroke();
+
+    for (const ring of otherRings) {
+        if (ring.points.length === 0) {
+            continue;
+        }
+
+        context.beginPath();
+        context.moveTo(ring.points[0].x, ring.points[0].y);
+        ring.points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+        context.closePath();
+        context.fillStyle = ring.isHole ? 'rgba(248, 249, 247, 0.86)' : 'rgba(47, 158, 68, 0.1)';
+        context.fill();
+        context.strokeStyle = '#149d45';
+        context.lineWidth = 1.5;
+        context.stroke();
+    }
 
     for (const point of sketch.vertices) {
         context.beginPath();
@@ -1374,20 +1738,115 @@ function drawRoundedRect(
     context.fill();
 }
 
-function exteriorRingFromGeometry(geometry: Geometry): [number, number][] {
+function sketchPolygonsFromGeometry(geometry: Geometry): [number, number][][][] {
     if (geometry.type === 'Polygon') {
-        return geometry.coordinates[0] as [number, number][];
+        return [geometry.coordinates as [number, number][][]];
     }
 
     if (geometry.type === 'MultiPolygon') {
-        const rings = geometry.coordinates
-            .map((polygon) => polygon[0] as [number, number][])
-            .filter((ring) => ring.length >= 4);
-
-        return rings.sort((left, right) => Math.abs(signedRingArea(right)) - Math.abs(signedRingArea(left)))[0] ?? [];
+        return geometry.coordinates
+            .map((polygon) => polygon as [number, number][][])
+            .filter((polygon) => (polygon[0]?.length ?? 0) >= 4);
     }
 
     return [];
+}
+
+function sketchOutlineRing(rings: [number, number][][]): [number, number][] {
+    if (rings.length === 1) {
+        return simplifySketchRing(rings[0]);
+    }
+
+    const points = rings
+        .flatMap(removeClosingCoordinate)
+        .filter((coordinate) => Number.isFinite(coordinate[0]) && Number.isFinite(coordinate[1]));
+
+    if (points.length <= 3) {
+        return simplifySketchRing(closeRing(points));
+    }
+
+    const uniquePoints = Array.from(
+        new Map(points.map((point) => [`${point[0].toFixed(10)},${point[1].toFixed(10)}`, point])).values(),
+    ).sort((left, right) => left[0] - right[0] || left[1] - right[1]);
+
+    if (uniquePoints.length <= 3) {
+        return simplifySketchRing(closeRing(uniquePoints));
+    }
+
+    const lower: [number, number][] = [];
+    for (const point of uniquePoints) {
+        while (lower.length >= 2 && hullCross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+            lower.pop();
+        }
+        lower.push(point);
+    }
+
+    const upper: [number, number][] = [];
+    for (const point of uniquePoints.slice().reverse()) {
+        while (upper.length >= 2 && hullCross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+            upper.pop();
+        }
+        upper.push(point);
+    }
+
+    return simplifySketchRing(closeRing([...lower.slice(0, -1), ...upper.slice(0, -1)]));
+}
+
+function hullCross(origin: [number, number], left: [number, number], right: [number, number]): number {
+    return (left[0] - origin[0]) * (right[1] - origin[1]) - (left[1] - origin[1]) * (right[0] - origin[0]);
+}
+
+function closeRing(ring: [number, number][]): [number, number][] {
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+
+    if (!first || !last) {
+        return ring;
+    }
+
+    return first[0] === last[0] && first[1] === last[1]
+        ? ring
+        : [...ring, [first[0], first[1]]];
+}
+
+function simplifySketchRing(ring: [number, number][]): [number, number][] {
+    let openRing = removeClosingCoordinate(ring);
+
+    if (openRing.length <= 3) {
+        return closeRing(openRing);
+    }
+
+    let changed = true;
+
+    while (changed && openRing.length > 3) {
+        const simplified = openRing.filter((point, index) => {
+            const previous = openRing[(index - 1 + openRing.length) % openRing.length];
+            const next = openRing[(index + 1) % openRing.length];
+
+            return !isNearlyCollinear(previous, point, next);
+        });
+
+        changed = simplified.length !== openRing.length;
+        openRing = simplified.length >= 3 ? simplified : openRing;
+    }
+
+    return closeRing(openRing);
+}
+
+function isNearlyCollinear(
+    previous: [number, number],
+    point: [number, number],
+    next: [number, number],
+): boolean {
+    const area = Math.abs(hullCross(previous, point, next));
+    const baseLength = Math.hypot(next[0] - previous[0], next[1] - previous[1]);
+    const distanceFromLine = baseLength === 0 ? 0 : area / baseLength;
+    const pointDistance = Math.min(
+        Math.hypot(point[0] - previous[0], point[1] - previous[1]),
+        Math.hypot(point[0] - next[0], point[1] - next[1]),
+    );
+
+    return distanceFromLine < 0.000015 && pointDistance > 0.000001;
 }
 
 function removeClosingCoordinate(ring: [number, number][]): [number, number][] {
@@ -1514,31 +1973,35 @@ function cleanFeatureForParcelDisplay(feature: Feature<Geometry> | null | undefi
 
 function cleanGeometryForParcelDisplay(geometry: Geometry): Geometry | null {
     if (geometry.type === 'Polygon') {
-        const exteriorRing = cleanExteriorRing(geometry.coordinates[0] as [number, number][]);
+        const polygon = cleanPolygonRings(geometry.coordinates as [number, number][][]);
 
-        return exteriorRing ? { type: 'Polygon', coordinates: [exteriorRing] } : null;
+        return polygon ? { type: 'Polygon', coordinates: polygon } : null;
     }
 
     if (geometry.type === 'MultiPolygon') {
         const polygons = geometry.coordinates
-            .map((polygon) => cleanExteriorRing(polygon[0] as [number, number][]))
-            .filter((ring): ring is [number, number][] => ring !== null)
-            .map((ring) => ({
-                ring,
-                area: Math.abs(signedRingArea(ring)),
-            }))
-            .sort((left, right) => right.area - left.area);
+            .map((polygon) => cleanPolygonRings(polygon as [number, number][][]))
+            .filter((polygon): polygon is [number, number][][] => polygon !== null);
 
-        const largestArea = polygons[0]?.area ?? 0;
-
-        if (largestArea <= 0) {
-            return null;
-        }
-
-        return { type: 'Polygon', coordinates: [polygons[0].ring] };
+        return polygons.length > 0 ? { type: 'MultiPolygon', coordinates: polygons } : null;
     }
 
     return geometry;
+}
+
+function cleanPolygonRings(polygon: [number, number][][]): [number, number][][] | null {
+    const exteriorRing = cleanExteriorRing(polygon[0]);
+
+    if (!exteriorRing) {
+        return null;
+    }
+
+    const innerRings = polygon
+        .slice(1)
+        .map(cleanExteriorRing)
+        .filter((ring): ring is [number, number][] => ring !== null);
+
+    return [exteriorRing, ...innerRings];
 }
 
 function cleanExteriorRing(ring: [number, number][] | undefined): [number, number][] | null {
@@ -1704,8 +2167,10 @@ async function selectRenderedFeature(feature: RenderedMapFeature): Promise<void>
     searchStatus.value = '';
 
     const parcel = parcelFromFeature(displayFeature, cadastralNumber);
+    const sketchFeature = selectedMapFeatureForSketch(displayFeature, cadastralNumber) ?? selectedFeature;
     selectedParcel.value = parcel;
-    selectedSketch.value = sketchFromGeometry(selectedFeature.geometry, parcel);
+    selectedSketch.value = sketchFromGeometry(sketchFeature.geometry, parcel);
+    selectedParcelFeature.value = toPlainFeature(sketchFeature);
     setParcelRoute(cadastralNumber);
 }
 
@@ -1773,6 +2238,107 @@ function bestFeatureByDisplayArea(features: RenderedMapFeature[]): RenderedMapFe
             area: displayGeometryArea(feature.geometry),
         }))
         .sort((left, right) => right.area - left.area)[0]?.feature ?? null;
+}
+
+function selectedMapFeatureForSketch(
+    fallbackFeature: RenderedMapFeature,
+    cadastralNumber: string,
+): Feature<Geometry> | null {
+    const map = mapInstance.value;
+
+    if (!map || fallbackFeature.source !== 'external-kadastr') {
+        return cleanFeatureForParcelDisplay(toPlainFeature(fallbackFeature));
+    }
+
+    const sameSourceLayers = interactiveLayersForFeature(fallbackFeature)
+        .filter((layerId) => map.getLayer(layerId));
+    const sameSourceMatches = sameSourceLayers.flatMap((layerId) => (
+        map.queryRenderedFeatures({ layers: [layerId] }) as RenderedMapFeature[]
+    ))
+        .filter((feature) => featureMatchesNumber(feature, cadastralNumber.replace(/\s+/g, '')));
+    const sameSourceFeature = combinedFeatureFromRenderedFeatures(sameSourceMatches)
+        ?? bestFeatureByDisplayArea(sameSourceMatches);
+
+    if (sameSourceFeature?.geometry) {
+        return cleanFeatureForParcelDisplay(toPlainFeature(sameSourceFeature));
+    }
+
+    const selectedLayers = externalSelectedLayerIds.filter((layerId) => {
+        if (!map.getLayer(layerId)) {
+            return false;
+        }
+
+        if (fallbackFeature.sourceLayer === 'polygons') {
+            return layerId.includes('-polygons-') && layerId.endsWith('-fill');
+        }
+
+        if (fallbackFeature.sourceLayer === 'land_polygons') {
+            return layerId.includes('-land-') && layerId.endsWith('-fill');
+        }
+
+        return layerId.endsWith('-fill');
+    });
+    const matches = selectedLayers.flatMap((layerId) => (
+        map.queryRenderedFeatures({ layers: [layerId] }) as RenderedMapFeature[]
+    ));
+    const selectedFeature = combinedFeatureFromRenderedFeatures(matches)
+        ?? bestFeatureByDisplayArea(matches)
+        ?? bestRenderedFeatureByNumber(cadastralNumber)
+        ?? fallbackFeature;
+
+    return cleanFeatureForParcelDisplay(toPlainFeature(selectedFeature));
+}
+
+function combinedFeatureFromRenderedFeatures(features: RenderedMapFeature[]): RenderedMapFeature | null {
+    const cleanFeatures = features
+        .map((feature) => cleanFeatureForParcelDisplay(toPlainFeature(feature)) as RenderedMapFeature | null)
+        .filter((feature): feature is RenderedMapFeature => Boolean(feature?.geometry));
+    const polygons: [number, number][][][] = [];
+    const seenPolygons = new Set<string>();
+
+    for (const feature of cleanFeatures) {
+        for (const polygon of sketchPolygonsFromGeometry(feature.geometry)) {
+            const key = polygonSignature(polygon);
+
+            if (!seenPolygons.has(key)) {
+                seenPolygons.add(key);
+                polygons.push(polygon);
+            }
+        }
+    }
+
+    if (polygons.length === 0) {
+        return null;
+    }
+
+    const baseFeature = bestFeatureByDisplayArea(cleanFeatures) ?? cleanFeatures[0];
+
+    return {
+        ...baseFeature,
+        geometry: polygons.length === 1
+            ? { type: 'Polygon', coordinates: polygons[0] }
+            : { type: 'MultiPolygon', coordinates: polygons },
+    };
+}
+
+function polygonSignature(polygon: [number, number][][]): string {
+    return polygon
+        .map((ring) => ring
+            .map(([lng, lat]) => `${lng.toFixed(7)},${lat.toFixed(7)}`)
+            .join(';'))
+        .join('|');
+}
+
+function interactiveLayersForFeature(feature: RenderedMapFeature): string[] {
+    if (feature.sourceLayer === 'polygons') {
+        return ['external-kadastr-polygons-fill'];
+    }
+
+    if (feature.sourceLayer === 'land_polygons') {
+        return ['external-kadastr-land-fill'];
+    }
+
+    return ['external-kadastr-polygons-fill', 'external-kadastr-land-fill'];
 }
 
 function featureMatchesNumber(feature: RenderedMapFeature, normalizedNumber: string): boolean {
@@ -2484,9 +3050,13 @@ function toPlainFeature(feature: Feature<Geometry>): Feature<Geometry> {
     return {
         type: 'Feature',
         id: feature.id,
-        geometry: structuredClone(feature.geometry),
-        properties: { ...(feature.properties ?? {}) },
+        geometry: jsonClone(feature.geometry),
+        properties: jsonClone(feature.properties ?? {}),
     };
+}
+
+function jsonClone<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function emptyFeatureCollection(): FeatureCollection {
