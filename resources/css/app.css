@@ -79,51 +79,6 @@ input {
     height: 100% !important;
 }
 
-.geolocation-button {
-    position: absolute;
-    right: 10px;
-    bottom: 142px;
-    z-index: 2;
-    display: grid;
-    width: 32px;
-    height: 32px;
-    place-items: center;
-    border: 2px solid rgb(0 0 0 / 10%);
-    border-radius: 4px;
-    background: #ffffff;
-    color: #333333;
-    box-shadow: 0 0 0 2px rgb(255 255 255 / 28%);
-    transition: background 150ms ease, color 150ms ease, transform 150ms ease;
-}
-
-.geolocation-button:hover {
-    background: #f2f2f2;
-}
-
-.geolocation-button:active {
-    transform: scale(0.96);
-}
-
-.geolocation-button.is-locating {
-    color: #1d9bf0;
-    pointer-events: none;
-}
-
-.geolocation-button.is-locating svg {
-    animation: geolocation-pulse 900ms ease-in-out infinite;
-}
-
-@keyframes geolocation-pulse {
-    0%,
-    100% {
-        transform: scale(1);
-    }
-
-    50% {
-        transform: scale(0.82);
-    }
-}
-
 .topbar {
     position: absolute;
     top: 16px;
@@ -644,11 +599,6 @@ h2 {
 @media (max-width: 760px) {
     .app-shell {
         min-height: 100dvh;
-    }
-
-    .geolocation-button {
-        right: 10px;
-        bottom: 126px;
     }
 
     .topbar {
