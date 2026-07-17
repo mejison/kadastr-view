@@ -9,6 +9,7 @@ deno.lock
 node_modules
 dist
 .netlify
+storage
 
 /.codex
 /.cursor

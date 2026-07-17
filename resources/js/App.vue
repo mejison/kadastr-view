@@ -90,6 +90,22 @@
                         </div>
                     </dl>
 
+                    <section v-if="shouldShowParcelRights(selectedParcel)" class="parcel-rights" aria-label="Оренда та речові права">
+                        <div class="parcel-rights-header">
+                            <h3>Оренда / речові права</h3>
+                            <span>{{ parcelRightsStatus(selectedParcel) }}</span>
+                        </div>
+                        <dl v-if="parcelRightsRows(selectedParcel).length > 0" class="parcel-rights-list">
+                            <div v-for="row in parcelRightsRows(selectedParcel)" :key="row.label">
+                                <dt>{{ row.label }}</dt>
+                                <dd>{{ row.value }}</dd>
+                            </div>
+                        </dl>
+                        <p v-else>
+                            У підключених відкритих наборах для цієї ділянки поки немає даних про оренду або інші речові права.
+                        </p>
+                    </section>
+
                     <section v-if="selectedSketch" class="parcel-sketch" aria-label="Схема меж ділянки">
                         <div class="parcel-sketch-actions">
                             <button
@@ -232,9 +248,34 @@ type Parcel = {
     land_category?: { id: string | null; name: string | null } | null;
     purpose?: { code: string | null; name: string | null } | null;
     address?: string | null;
+    rights?: ParcelRights | null;
     freshness_status: string;
     source: { name: string; updated_at: string; official: boolean };
     centroid: { lat: number; lng: number };
+};
+
+type ParcelRights = {
+    rightType?: string | null;
+    tenant?: string | null;
+    landlord?: string | null;
+    landlordCode?: string | null;
+    contractNumber?: string | null;
+    contractDate?: string | null;
+    registeredAt?: string | null;
+    validUntil?: string | null;
+    leaseArea?: string | null;
+    landUse?: string | null;
+    address?: string | null;
+    source?: string | null;
+    sourceUrl?: string | null;
+    datasetName?: string | null;
+    publisher?: string | null;
+    updatedAt?: string | null;
+};
+
+type ParcelRightsRow = {
+    label: string;
+    value: string;
 };
 
 type RenderedMapFeature = Feature<Geometry> & {
@@ -345,6 +386,10 @@ const layerPanelCollapsed = ref(true);
 const selectedBaseMapId = ref<BaseMapId>('osm');
 const mapStatus = ref('завантаження карти');
 let geolocationFallbackActive = false;
+let hoveredFeatureKey: string | null = null;
+let hoverLayersRaised = false;
+let pendingHoveredFeature: Feature<Geometry> | null = null;
+let hoverAnimationFrame: number | null = null;
 const externalKadastrEnabled = true;
 const ukraineCenter: [number, number] = [31.1656, 48.3794];
 const ukraineNavigationBounds: [[number, number], [number, number]] = [
@@ -366,6 +411,17 @@ const externalSelectedLayerIds = [
     'external-kadastr-land-selected-fill',
     'external-kadastr-land-selected-line',
 ];
+const hoverPerfEnabled = typeof window !== 'undefined' && window.localStorage.getItem('kadastrHoverPerf') === '1';
+const hoverPerfStats = {
+    count: 0,
+    applyCount: 0,
+    queryMs: 0,
+    tooltipMs: 0,
+    highlightMs: 0,
+    applyMs: 0,
+    totalMs: 0,
+    slowestMs: 0,
+};
 const mapViewStorageKey = 'kadastr-view:map-view:v1';
 const baseMapStorageKey = 'kadastr-view:base-map:v1';
 const baseMaps: BaseMap[] = [
@@ -895,9 +951,13 @@ async function searchParcel(
 
     if (selectedFeature?.geometry) {
         highlightSelectedFeature(renderedFeature ?? selectedFeature);
-        const parcel = renderedFeature
+        let parcel = renderedFeature
             ? parcelFromFeature(renderedFeature, manualQuery)
             : payload.data;
+        parcel = {
+            ...parcel,
+            rights: await preferredParcelRights(manualQuery, parcel.rights, payload.data?.rights),
+        };
         const sketchFeature = renderedFeature
             ? selectedMapFeatureForSketch(renderedFeature, manualQuery) ?? selectedFeature
             : selectedFeature;
@@ -1125,17 +1185,49 @@ function bindMapInteractions(map: maplibregl.Map): void {
     });
 
     map.on('mousemove', (event) => {
-        const feature = findInteractiveFeature(map, event.point, [event.lngLat.lng, event.lngLat.lat]);
+        const startedAt = hoverPerfNow();
+        const feature = findInteractiveHoverFeature(map, event.point);
+        const afterQuery = hoverPerfNow();
         const hasFeature = Boolean(feature?.geometry);
 
         map.getCanvas().style.cursor = hasFeature ? 'pointer' : '';
         hoverTooltip.value = feature?.geometry ? tooltipFromFeature(feature, event.point) : null;
+        const afterTooltip = hoverPerfNow();
         updateHoveredFeature(feature?.geometry ? feature : null);
+        const finishedAt = hoverPerfNow();
+        recordHoverPerf({
+            queryMs: afterQuery - startedAt,
+            tooltipMs: afterTooltip - afterQuery,
+            highlightMs: finishedAt - afterTooltip,
+            totalMs: finishedAt - startedAt,
+        });
     });
 
     map.on('mouseleave', () => {
         clearMapHoverState();
     });
+}
+
+function findInteractiveHoverFeature(
+    map: maplibregl.Map,
+    point: maplibregl.PointLike,
+): RenderedMapFeature | undefined {
+    const layerPriority = interactiveLayersForZoom(map.getZoom());
+
+    for (const layerId of layerPriority) {
+        if (!map.getLayer(layerId)) {
+            continue;
+        }
+
+        const feature = (map.queryRenderedFeatures(point, { layers: [layerId] }) as RenderedMapFeature[])
+            .find((candidate) => candidate.geometry);
+
+        if (feature?.geometry) {
+            return feature;
+        }
+    }
+
+    return undefined;
 }
 
 function findInteractiveFeature(
@@ -1541,6 +1633,43 @@ function selectedParcelPublicUrl(): string {
     return `${window.location.origin}/dilyanka/${encodedNumber}`;
 }
 
+async function loadParcelOpenRights(cadastralNumber: string): Promise<ParcelRights | null> {
+    if (!cadastralNumber || cadastralNumber === 'Вибраний полігон') {
+        return null;
+    }
+
+    try {
+        const response = await fetch(apiUrl(`/api/v1/parcels/${encodeURIComponent(cadastralNumber)}/open-rights`));
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const payload = await response.json() as { data?: ParcelRights | null };
+
+        return payload.data ?? null;
+    } catch {
+        return null;
+    }
+}
+
+async function preferredParcelRights(
+    cadastralNumber: string,
+    ...candidates: Array<ParcelRights | null | undefined>
+): Promise<ParcelRights | null> {
+    const meaningfulRights = candidates.find(hasMeaningfulParcelRights);
+
+    if (meaningfulRights) {
+        return meaningfulRights;
+    }
+
+    const openRights = await loadParcelOpenRights(cadastralNumber);
+
+    return hasMeaningfulParcelRights(openRights)
+        ? openRights
+        : candidates.find((rights): rights is ParcelRights => Boolean(rights)) ?? openRights;
+}
+
 function copyTextWithFallback(value: string): void {
     const textarea = document.createElement('textarea');
     textarea.value = value;
@@ -1610,6 +1739,21 @@ async function selectedDownloadFeature(): Promise<Feature<Geometry> | null> {
             purpose_name: parcelPurpose(parcel),
             land_category: parcelCategory(parcel),
             address: parcelAddress(parcel),
+            rights_type: parcel.rights?.rightType ?? null,
+            lease_tenant: parcel.rights?.tenant ?? null,
+            lease_landlord: parcel.rights?.landlord ?? null,
+            lease_landlord_code: parcel.rights?.landlordCode ?? null,
+            lease_contract_number: parcel.rights?.contractNumber ?? null,
+            lease_contract_date: parcel.rights?.contractDate ?? null,
+            lease_registered_at: parcel.rights?.registeredAt ?? null,
+            lease_valid_until: parcel.rights?.validUntil ?? null,
+            lease_area: parcel.rights?.leaseArea ?? null,
+            lease_land_use: parcel.rights?.landUse ?? null,
+            lease_address: parcel.rights?.address ?? null,
+            rights_source: parcel.rights?.source ?? null,
+            rights_source_url: parcel.rights?.sourceUrl ?? null,
+            rights_dataset_name: parcel.rights?.datasetName ?? null,
+            rights_publisher: parcel.rights?.publisher ?? null,
             source_updated_at: parcel.source.updated_at ?? null,
             url: selectedParcelPublicUrl(),
         },
@@ -2242,7 +2386,10 @@ async function selectRenderedFeature(feature: RenderedMapFeature): Promise<void>
 
     const parcel = parcelFromFeature(displayFeature, cadastralNumber);
     const sketchFeature = selectedMapFeatureForSketch(displayFeature, cadastralNumber) ?? selectedFeature;
-    selectedParcel.value = parcel;
+    selectedParcel.value = {
+        ...parcel,
+        rights: await preferredParcelRights(cadastralNumber, parcel.rights),
+    };
     selectedSketch.value = sketchFromGeometry(sketchFeature.geometry, parcel);
     selectedParcelFeature.value = toPlainFeature(sketchFeature);
     setParcelRoute(cadastralNumber);
@@ -2468,6 +2615,7 @@ function parcelFromFeature(feature: RenderedMapFeature, cadastralNumber: string)
             name: purposeName,
         } : null,
         address,
+        rights: parcelRightsFromProperties(properties),
         freshness_status: ownership ?? 'open_reference',
         source: {
             name: sourceName,
@@ -2512,6 +2660,218 @@ function parcelAddress(parcel: Parcel): string {
     const address = parcel.address?.trim();
 
     return address && address !== 'Україна' ? address : 'Дані відсутні';
+}
+
+function shouldShowParcelRights(parcel: Parcel): boolean {
+    return hasMeaningfulParcelRights(parcel.rights) || isAgriculturalParcel(parcel);
+}
+
+function isAgriculturalParcel(parcel: Parcel): boolean {
+    const purposeCode = parcel.purpose?.code?.trim();
+    const purposeText = [
+        parcel.purpose?.name,
+        parcel.land_category?.name,
+        parcel.freshness_status,
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    return Boolean(purposeCode?.startsWith('01.'))
+        || purposeText.includes('сільськогосподар')
+        || purposeText.includes('товарного сільськогосподарського виробництва')
+        || purposeText.includes('особистого селянського господарства')
+        || purposeText.includes('фермерського господарства');
+}
+
+function parcelRightsRows(parcel: Parcel): ParcelRightsRow[] {
+    const rights = parcel.rights;
+
+    if (!rights || !hasMeaningfulParcelRights(rights)) {
+        return [];
+    }
+
+    return [
+        rightsRow('Тип права', rights.rightType),
+        rightsRow('Орендар', rights.tenant),
+        rightsRow('Орендодавець', rights.landlord),
+        rightsRow('ЄДРПОУ орендодавця', rights.landlordCode),
+        rightsRow('Договір', rights.contractNumber),
+        rightsRow('Дата договору', rights.contractDate),
+        rightsRow('Зареєстровано', rights.registeredAt),
+        rightsRow('Строк дії', rights.validUntil),
+        rightsRow('Площа за договором', rights.leaseArea),
+        rightsRow('Призначення в наборі', rights.landUse),
+        rightsRow('Адреса в наборі', rights.address),
+        rightsRow('Розпорядник', rights.publisher),
+        rightsRow('Оновлено', rights.updatedAt),
+    ].filter((row): row is ParcelRightsRow => row !== null);
+}
+
+function parcelRightsStatus(parcel: Parcel): string {
+    return parcelRightsRows(parcel).length > 0 ? 'Є у відкритих даних' : 'Даних не знайдено';
+}
+
+function hasMeaningfulParcelRights(rights: ParcelRights | null | undefined): boolean {
+    return Boolean(
+        hasMeaningfulRightsValue(rights?.tenant)
+        || hasMeaningfulRightsValue(rights?.landlord)
+        || hasMeaningfulRightsValue(rights?.landlordCode)
+        || hasMeaningfulRightsValue(rights?.contractNumber)
+        || hasMeaningfulRightsValue(rights?.contractDate)
+        || hasMeaningfulRightsValue(rights?.registeredAt)
+        || hasMeaningfulRightsValue(rights?.validUntil),
+    );
+}
+
+function rightsRow(label: string, value: string | null | undefined): ParcelRightsRow | null {
+    return hasMeaningfulRightsValue(value) ? { label, value: value.trim() } : null;
+}
+
+function hasMeaningfulRightsValue(value: string | null | undefined): value is string {
+    const normalized = value?.trim() ?? '';
+
+    return normalized !== ''
+        && !normalized.toLowerCase().startsWith('http://')
+        && !normalized.toLowerCase().startsWith('https://');
+}
+
+function parcelRightsFromProperties(properties: Record<string, unknown>): ParcelRights | null {
+    const rights: ParcelRights = {
+        rightType: firstStringProperty(properties, [
+            'right_type',
+            'rights_type',
+            'property_right_type',
+            'real_right_type',
+            'lease_type',
+            'encumbrance_type',
+        ]),
+        tenant: firstStringProperty(properties, [
+            'tenant',
+            'lessee',
+            'lease_tenant',
+            'leaseholder',
+            'renter',
+            'orendar',
+            'orendar_name',
+            'орендар',
+        ]),
+        landlord: firstStringProperty(properties, [
+            'landlord',
+            'lessor',
+            'lease_landlord',
+            'owner',
+            'orendodavec',
+            'orendodavets',
+            'орендодавець',
+        ]),
+        landlordCode: firstStringProperty(properties, [
+            'landlord_code',
+            'lessor_code',
+            'edrpou',
+            'edrpou_code',
+            'code edrpou (of a person authorized by him)',
+            'код єдрпоу',
+        ]),
+        contractNumber: firstStringProperty(properties, [
+            'contract_number',
+            'lease_contract_number',
+            'lease_contract',
+            'agreement_number',
+            'registration_number',
+            'record_number',
+        ]),
+        contractDate: firstStringProperty(properties, [
+            'contract_date',
+            'lease_contract_date',
+            'agreement_date',
+            'date of conclusion of the land lease agreement',
+            'дата договору',
+            'дата укладення',
+        ]),
+        registeredAt: firstStringProperty(properties, [
+            'registered_at',
+            'registration_date',
+            'right_registered_at',
+            'lease_registered_at',
+        ]),
+        validUntil: firstStringProperty(properties, [
+            'valid_until',
+            'lease_valid_until',
+            'lease_until',
+            'contract_until',
+            'expires_at',
+            'end_date',
+            'the validity period of the land lease agreement',
+            'строк дії',
+        ]),
+        leaseArea: formatRightsArea(firstStringProperty(properties, [
+            'lease_area',
+            'land plot area, ha (with four decimal places)',
+            'area',
+            'площа',
+        ])),
+        landUse: firstStringProperty(properties, [
+            'lease_land_use',
+            'purpose of land plot**',
+            'purpose of land plot',
+            'land_use',
+            'цільове призначення',
+            'призначення',
+        ]),
+        address: firstStringProperty(properties, [
+            'lease_address',
+            'location of the land plot (address)',
+            'address',
+            'адреса',
+            'місце розташування',
+        ]),
+        source: firstStringProperty(properties, [
+            'rights_source',
+            'lease_source',
+            'register_source',
+        ]),
+        sourceUrl: firstStringProperty(properties, [
+            'rights_source_url',
+            'source_url',
+            'dataset_url',
+            'resource_url',
+        ]),
+        datasetName: firstStringProperty(properties, [
+            'rights_dataset_name',
+            'dataset_title',
+            'dataset_name',
+        ]),
+        publisher: firstStringProperty(properties, [
+            'rights_publisher',
+            'publisher',
+            'organization',
+        ]),
+        updatedAt: firstStringProperty(properties, [
+            'rights_updated_at',
+            'updated_at',
+            'imported_at',
+        ]),
+    };
+
+    return Object.values(rights).some(Boolean) ? rights : null;
+}
+
+function formatRightsArea(value: string | null): string | null {
+    if (!value) {
+        return null;
+    }
+
+    return value.toLowerCase().includes('га') ? value : `${value} га`;
+}
+
+function firstStringProperty(properties: Record<string, unknown>, keys: string[]): string | null {
+    for (const key of keys) {
+        const value = stringProperty(properties[key]);
+
+        if (value) {
+            return value;
+        }
+    }
+
+    return null;
 }
 
 function stringProperty(value: unknown): string | null {
@@ -3034,29 +3394,123 @@ function moveLayerToTop(map: maplibregl.Map, layerId: string): void {
 }
 
 function updateHoveredFeature(feature: Feature<Geometry> | null): void {
+    pendingHoveredFeature = feature;
+
+    if (hoverAnimationFrame !== null) {
+        return;
+    }
+
+    hoverAnimationFrame = window.requestAnimationFrame(() => {
+        hoverAnimationFrame = null;
+        applyHoveredFeature(pendingHoveredFeature);
+    });
+}
+
+function applyHoveredFeature(feature: Feature<Geometry> | null): void {
+    const startedAt = hoverPerfNow();
     const map = mapInstance.value;
+    const featureKey = feature?.geometry ? featureIdentityKey(feature as RenderedMapFeature) : null;
+
+    if (featureKey === hoveredFeatureKey) {
+        recordHoverApplyPerf(hoverPerfNow() - startedAt);
+        return;
+    }
+
+    hoveredFeatureKey = featureKey;
 
     if (!map) {
+        recordHoverApplyPerf(hoverPerfNow() - startedAt);
         return;
     }
 
     const hoveredSource = map.getSource('hovered-parcel') as maplibregl.GeoJSONSource | undefined;
 
     if (!hoveredSource) {
+        recordHoverApplyPerf(hoverPerfNow() - startedAt);
         return;
     }
 
-    if (feature?.geometry && applyExternalFeatureFilter(map, feature as RenderedMapFeature, externalHoverLayerIds)) {
-        hoveredSource.setData(emptyFeatureCollection());
-        externalHoverLayerIds.forEach((layerId) => moveLayerToTop(map, layerId));
-        return;
-    }
-
-    clearExternalFeatureFilter(map, externalHoverLayerIds);
     hoveredSource.setData(feature?.geometry ? {
         type: 'FeatureCollection',
         features: [toPlainFeature(feature)],
     } : emptyFeatureCollection());
+
+    ensureHoverLayersOnTop(map);
+    recordHoverApplyPerf(hoverPerfNow() - startedAt);
+}
+
+function ensureHoverLayersOnTop(map: maplibregl.Map): void {
+    if (hoverLayersRaised) {
+        return;
+    }
+
+    moveLayerToTop(map, 'parcel-hover-fill');
+    moveLayerToTop(map, 'parcel-hover-line');
+    hoverLayersRaised = true;
+}
+
+function hoverPerfNow(): number {
+    return hoverPerfEnabled ? performance.now() : 0;
+}
+
+function recordHoverPerf(sample: {
+    queryMs: number;
+    tooltipMs: number;
+    highlightMs: number;
+    totalMs: number;
+}): void {
+    if (!hoverPerfEnabled) {
+        return;
+    }
+
+    hoverPerfStats.count += 1;
+    hoverPerfStats.queryMs += sample.queryMs;
+    hoverPerfStats.tooltipMs += sample.tooltipMs;
+    hoverPerfStats.highlightMs += sample.highlightMs;
+    hoverPerfStats.totalMs += sample.totalMs;
+    hoverPerfStats.slowestMs = Math.max(hoverPerfStats.slowestMs, sample.totalMs);
+
+    if (hoverPerfStats.count % 120 !== 0) {
+        return;
+    }
+
+    const count = hoverPerfStats.count;
+    const applyCount = Math.max(hoverPerfStats.applyCount, 1);
+
+    console.table({
+        'hover avg queryRenderedFeatures': `${(hoverPerfStats.queryMs / count).toFixed(2)} ms`,
+        'hover avg tooltip': `${(hoverPerfStats.tooltipMs / count).toFixed(2)} ms`,
+        'hover avg schedule': `${(hoverPerfStats.highlightMs / count).toFixed(2)} ms`,
+        'hover avg apply setData': `${(hoverPerfStats.applyMs / applyCount).toFixed(2)} ms`,
+        'hover avg total': `${(hoverPerfStats.totalMs / count).toFixed(2)} ms`,
+        'hover slowest total': `${hoverPerfStats.slowestMs.toFixed(2)} ms`,
+        mousemove_samples: count,
+        apply_samples: hoverPerfStats.applyCount,
+    });
+}
+
+function recordHoverApplyPerf(applyMs: number): void {
+    if (!hoverPerfEnabled) {
+        return;
+    }
+
+    hoverPerfStats.applyCount += 1;
+    hoverPerfStats.applyMs += applyMs;
+}
+
+function featureIdentityKey(feature: RenderedMapFeature): string {
+    const properties = feature.properties ?? {};
+    const cadastralNumber = stringProperty(properties.cadastral_number)
+        ?? stringProperty(properties.cadnum)
+        ?? stringProperty(properties.cad_num)
+        ?? stringProperty(properties.parcels)
+        ?? stringProperty(properties.id);
+
+    return [
+        feature.source ?? 'source',
+        feature.sourceLayer ?? 'layer',
+        feature.id ?? cadastralNumber ?? 'feature',
+    ].join(':');
 }
 
 function applyExternalFeatureFilter(

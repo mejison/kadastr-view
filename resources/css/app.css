@@ -411,6 +411,69 @@ h2 {
     font-weight: 800;
 }
 
+.parcel-rights {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 16px;
+    border: 1px solid rgb(32 35 29 / 10%);
+    border-radius: 8px;
+    background: rgb(248 249 247 / 72%);
+    padding: 12px;
+}
+
+.parcel-rights-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.parcel-rights h3 {
+    margin: 0;
+    color: #20231d;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.parcel-rights-header span {
+    color: #6b705f;
+    font-size: 11px;
+    font-weight: 760;
+    text-align: right;
+    text-transform: uppercase;
+}
+
+.parcel-rights p {
+    margin: 0;
+    color: #4b5563;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.parcel-rights-list {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+}
+
+.parcel-rights-list div {
+    display: grid;
+    grid-template-columns: minmax(92px, 0.34fr) minmax(0, 1fr);
+    gap: 8px;
+}
+
+.parcel-rights-list dt {
+    color: #6b705f;
+    font-size: 12px;
+}
+
+.parcel-rights-list dd {
+    margin: 0;
+    color: #20231d;
+    font-size: 13px;
+    font-weight: 760;
+}
+
 .parcel-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

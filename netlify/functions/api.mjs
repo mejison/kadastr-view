@@ -59,6 +59,11 @@ export async function handler(event, context = {}) {
             return parcelGeometry(decodeURIComponent(geometryMatch[1]));
         }
 
+        const openRightsMatch = path.match(/^parcels\/(.+)\/open-rights$/);
+        if (openRightsMatch) {
+            return parcelOpenRights(decodeURIComponent(openRightsMatch[1]));
+        }
+
         const parcelMatch = path.match(/^parcels\/(.+)$/);
         if (parcelMatch) {
             return parcelDetails(decodeURIComponent(parcelMatch[1]));
@@ -214,16 +219,21 @@ async function parcelsGeoJson(limit) {
 async function parcelDetails(cadastralNumber) {
     const normalized = normalizeCadastralNumber(cadastralNumber);
     const parcel = await findParcel(normalized);
+    const openRights = await findOpenParcelRights(normalized);
 
     return jsonResponse({
-        data: parcel ? parcelToApiResource(parcel) : demoParcel(normalized),
+        data: parcel ? parcelToApiResource(parcel, openRights) : {
+            ...demoParcel(normalized),
+            rights: openRights,
+        },
     });
 }
 
 async function parcelGeometry(cadastralNumber) {
     const normalized = normalizeCadastralNumber(cadastralNumber);
     const parcel = await findParcel(normalized);
-    const feature = parcel ? parcelToFeature(parcel) : null;
+    const openRights = await findOpenParcelRights(normalized);
+    const feature = parcel ? parcelToFeature(parcel, openRights) : null;
 
     return jsonResponse({
         data: feature ?? {
@@ -235,6 +245,14 @@ async function parcelGeometry(cadastralNumber) {
                 source_crs: 'EPSG:4326',
             },
         },
+    });
+}
+
+async function parcelOpenRights(cadastralNumber) {
+    const normalized = normalizeCadastralNumber(cadastralNumber);
+
+    return jsonResponse({
+        data: await findOpenParcelRights(normalized),
     });
 }
 
@@ -318,7 +336,22 @@ async function findParcel(normalizedNumber) {
     });
 }
 
-function parcelToFeature(parcel) {
+async function findOpenParcelRights(normalizedNumber) {
+    const db = await mongoDb();
+
+    if (!db || normalizedNumber === '') {
+        return null;
+    }
+
+    const record = await db.collection('parcel_open_rights').findOne(
+        { cadastral_number_normalized: normalizedNumber },
+        { sort: { imported_at: -1, updated_at: -1 } },
+    );
+
+    return record ? openRightsToResource(record) : null;
+}
+
+function parcelToFeature(parcel, openRights = null) {
     const geometry = parcel.geometry ?? parcel.geometries?.find?.((item) => item.is_current !== false)?.geometry;
 
     if (!geometry) {
@@ -341,14 +374,15 @@ function parcelToFeature(parcel) {
             land_category: parcel.land_category ?? null,
             purpose_code: parcel.purpose_code ?? null,
             purpose_name: parcel.purpose_name ?? null,
+            ...parcelRightsProperties(parcel, openRights),
             source_name: parcel.source?.name ?? parcel.source_name ?? 'MongoDB Atlas',
             source_official: parcel.source?.official ?? parcel.source_official ?? false,
         },
     };
 }
 
-function parcelToApiResource(parcel) {
-    const feature = parcelToFeature(parcel);
+function parcelToApiResource(parcel, openRights = null) {
+    const feature = parcelToFeature(parcel, openRights);
     const centroid = parcel.centroid ?? centroidFromGeometry(feature?.geometry);
 
     return {
@@ -363,6 +397,7 @@ function parcelToApiResource(parcel) {
         land_category: parcel.land_category ? { id: null, name: parcel.land_category } : null,
         purpose: parcel.purpose_code ? { code: parcel.purpose_code, name: parcel.purpose_name ?? null } : null,
         address: parcel.address ?? 'Україна',
+        rights: parcelRightsResource(parcel) ?? openRights,
         centroid: {
             lat: centroid?.lat ?? null,
             lng: centroid?.lng ?? null,
@@ -375,6 +410,84 @@ function parcelToApiResource(parcel) {
         freshness_status: parcel.freshness_status ?? 'open_reference',
         geometry_available: Boolean(feature?.geometry),
     };
+}
+
+function openRightsToResource(record) {
+    return {
+        rightType: firstString(record.right_type, record.rightType, record.lease_type) ?? 'Оренда землі',
+        tenant: firstString(record.tenant, record.lessee, record.leaseholder),
+        landlord: firstString(record.landlord, record.lessor),
+        landlordCode: firstString(record.landlord_code, record.lessor_code),
+        contractNumber: firstString(record.contract_number, record.contractNumber),
+        contractDate: firstString(record.contract_date, record.contractDate),
+        registeredAt: firstString(record.registered_at, record.registeredAt, record.registration_date),
+        validUntil: firstString(record.valid_until, record.validUntil, record.lease_until),
+        leaseArea: firstString(record.lease_area, record.leaseArea),
+        landUse: firstString(record.land_use, record.landUse),
+        address: firstString(record.address, record.lease_address),
+        source: firstString(record.source_name, record.dataset_title, record.publisher) ?? 'Відкриті дані',
+        sourceUrl: firstString(record.source_url, record.dataset_url, record.resource_url),
+        datasetName: firstString(record.dataset_title, record.dataset_name),
+        publisher: firstString(record.publisher),
+        updatedAt: firstString(record.updated_at, record.imported_at),
+    };
+}
+
+function parcelRightsResource(parcel) {
+    const rights = {
+        rightType: firstString(parcel.right_type, parcel.rights_type, parcel.property_right_type, parcel.real_right_type, parcel.lease_type),
+        tenant: firstString(parcel.tenant, parcel.lessee, parcel.leaseholder, parcel.renter, parcel.orendar, parcel.orendar_name),
+        landlord: firstString(parcel.landlord, parcel.lessor, parcel.owner, parcel.orendodavec, parcel.orendodavets),
+        landlordCode: firstString(parcel.landlord_code, parcel.lessor_code, parcel.edrpou, parcel.edrpou_code),
+        contractNumber: firstString(parcel.contract_number, parcel.lease_contract, parcel.agreement_number, parcel.registration_number, parcel.record_number),
+        contractDate: firstString(parcel.contract_date, parcel.lease_contract_date, parcel.agreement_date),
+        registeredAt: firstString(parcel.registered_at, parcel.registration_date, parcel.right_registered_at, parcel.lease_registered_at),
+        validUntil: firstString(parcel.valid_until, parcel.lease_until, parcel.contract_until, parcel.expires_at, parcel.end_date),
+        leaseArea: firstString(parcel.lease_area, parcel.leaseArea),
+        landUse: firstString(parcel.land_use, parcel.landUse, parcel.lease_land_use),
+        address: firstString(parcel.lease_address, parcel.address),
+        source: firstString(parcel.rights_source, parcel.lease_source, parcel.register_source),
+    };
+
+    return Object.values(rights).some(Boolean) ? rights : null;
+}
+
+function parcelRightsProperties(parcel, openRights = null) {
+    const rights = parcelRightsResource(parcel) ?? openRights;
+
+    return rights ? {
+        rights_type: rights.rightType,
+        lease_tenant: rights.tenant,
+        lease_landlord: rights.landlord,
+        lease_landlord_code: rights.landlordCode,
+        lease_contract_number: rights.contractNumber,
+        lease_contract_date: rights.contractDate,
+        lease_registered_at: rights.registeredAt,
+        lease_valid_until: rights.validUntil,
+        lease_area: rights.leaseArea,
+        lease_land_use: rights.landUse,
+        lease_address: rights.address,
+        rights_source: rights.source,
+        rights_source_url: rights.sourceUrl,
+        rights_dataset_name: rights.datasetName,
+        rights_publisher: rights.publisher,
+    } : {};
+}
+
+function firstString(...values) {
+    for (const value of values) {
+        if (typeof value !== 'string' && typeof value !== 'number') {
+            continue;
+        }
+
+        const normalized = String(value).trim();
+
+        if (normalized !== '') {
+            return normalized;
+        }
+    }
+
+    return null;
 }
 
 function demoParcel(cadastralNumber) {
@@ -390,6 +503,7 @@ function demoParcel(cadastralNumber) {
         land_category: { id: null, name: 'Очікує індексу' },
         purpose: { code: null, name: 'Дані з vector tiles або зовнішнього lookup' },
         address: 'Україна',
+        rights: null,
         centroid: { lat: null, lng: null },
         source: {
             name: 'Serverless fallback',

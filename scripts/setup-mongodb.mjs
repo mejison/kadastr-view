@@ -62,6 +62,28 @@ try {
         },
     ]);
 
+    await db.collection('parcel_open_rights').createIndexes([
+        {
+            key: { cadastral_number_normalized: 1 },
+            name: 'cadastral_number_normalized',
+        },
+        {
+            key: { cadastral_number: 1 },
+            name: 'cadastral_number',
+            sparse: true,
+        },
+        {
+            key: { source_url: 1, source_row_id: 1 },
+            name: 'source_row_unique',
+            unique: true,
+            sparse: true,
+        },
+        {
+            key: { imported_at: -1 },
+            name: 'imported_at_desc',
+        },
+    ]);
+
     console.log(`MongoDB ready: ${databaseName}`);
 } finally {
     await client.close();
