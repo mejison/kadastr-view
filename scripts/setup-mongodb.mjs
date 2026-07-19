@@ -84,6 +84,48 @@ try {
         },
     ]);
 
+    await db.collection('parcel_orders').createIndexes([
+        {
+            key: { cadastral_number: 1, created_at: -1 },
+            name: 'cadastral_number_created_at',
+        },
+        {
+            key: { invoice_id: 1 },
+            name: 'invoice_id_unique',
+            unique: true,
+            partialFilterExpression: { invoice_id: { $type: 'string' } },
+        },
+        {
+            key: { status: 1, created_at: -1 },
+            name: 'status_created_at',
+        },
+        {
+            key: { stripe_payment_intent: 1 },
+            name: 'stripe_payment_intent',
+            partialFilterExpression: { stripe_payment_intent: { $type: 'string' } },
+        },
+    ]);
+
+    await db.collection('parcel_listings').createIndexes([
+        {
+            key: { cadastral_number_normalized: 1, created_at: -1 },
+            name: 'cadastral_number_created_at',
+        },
+        {
+            key: { status: 1, created_at: -1 },
+            name: 'status_created_at',
+        },
+        {
+            key: { listing_type: 1, status: 1 },
+            name: 'listing_type_status',
+        },
+        {
+            key: { location: '2dsphere' },
+            name: 'location_2dsphere',
+            sparse: true,
+        },
+    ]);
+
     console.log(`MongoDB ready: ${databaseName}`);
 } finally {
     await client.close();

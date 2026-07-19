@@ -17,12 +17,19 @@
             <div ref="mapContainer" class="map-canvas" aria-label="Інтерактивна карта України"></div>
 
             <header class="topbar" @pointerenter="clearMapHoverState">
-                <div class="brand-block">
-                    <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true">
-                    <div>
-                        <p class="eyebrow">Карта земельних ділянок</p>
-                        <h1>KadastrView</h1>
+                <div class="topbar-left">
+                    <div class="brand-block">
+                        <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true">
+                        <div>
+                            <p class="eyebrow">Карта земельних ділянок</p>
+                            <h1>KadastrView</h1>
+                        </div>
                     </div>
+
+                    <button type="button" class="listing-board-open" @click="openListingBoard">
+                        <Newspaper :size="17" aria-hidden="true" />
+                        <span>Дошка оголошень</span>
+                    </button>
                 </div>
 
                 <div class="search-wrap">
@@ -41,6 +48,178 @@
                     </form>
                 </div>
             </header>
+
+            <aside
+                v-if="listingBoardOpen"
+                class="listing-board-panel"
+                aria-label="Дошка оголошень"
+                @pointerenter="clearMapHoverState"
+            >
+                <header class="listing-board-top">
+                    <h2>{{ selectedBoardListing ? 'Оголошення' : 'Дошка оголошень' }}</h2>
+                    <button
+                        type="button"
+                        title="Закрити дошку оголошень"
+                        aria-label="Закрити дошку оголошень"
+                        @click="closeListingBoard"
+                    >
+                        <X :size="18" aria-hidden="true" />
+                    </button>
+                </header>
+
+                <div v-if="selectedBoardListing" class="listing-board-scroll">
+                    <button type="button" class="listing-detail-back" @click="selectedBoardListing = null">
+                        <ArrowLeft :size="17" aria-hidden="true" />
+                        <span>До списку оголошень</span>
+                    </button>
+
+                    <article class="listing-detail-card">
+                        <div class="listing-detail-media">
+                            <img v-if="listingPhotoUrl(selectedBoardListing)" :src="listingPhotoUrl(selectedBoardListing) ?? undefined" alt="">
+                            <span
+                                v-else
+                                :class="['listing-board-card-placeholder', `is-${selectedBoardListing.listingType}`]"
+                                aria-hidden="true"
+                            >
+                                <span>
+                                    <component :is="listingTypeIcon(selectedBoardListing.listingType)" :size="42" aria-hidden="true" />
+                                </span>
+                            </span>
+                            <span :class="['listing-board-card-badge', `is-${selectedBoardListing.listingType}`]">
+                                <component :is="listingTypeIcon(selectedBoardListing.listingType)" :size="15" aria-hidden="true" />
+                                <span>{{ listingTypeShortLabel(selectedBoardListing.listingType) }}</span>
+                            </span>
+                        </div>
+
+                        <div class="listing-detail-body">
+                            <strong class="listing-detail-price">{{ listingPriceLabel(selectedBoardListing) }}</strong>
+                            <h3>{{ selectedBoardListing.title }}</h3>
+                            <div class="listing-detail-meta">
+                                <span>
+                                    <MapPinned :size="15" aria-hidden="true" />
+                                    {{ selectedBoardListing.cadastralNumber }}
+                                </span>
+                                <span v-if="selectedBoardListing.area">Площа: {{ selectedBoardListing.area }}</span>
+                                <span v-if="listingDateLabel(selectedBoardListing.createdAt)">Дата: {{ listingDateLabel(selectedBoardListing.createdAt) }}</span>
+                            </div>
+                            <p v-if="selectedBoardListing.description">{{ selectedBoardListing.description }}</p>
+                        </div>
+                    </article>
+
+                    <section class="listing-detail-contact" aria-label="Контакти продавця">
+                        <h3>Контакти продавця</h3>
+                        <strong>{{ listingContactName(selectedBoardListing) }}</strong>
+                        <a
+                            v-if="listingContactPhone(selectedBoardListing)"
+                            :href="`tel:${listingContactPhone(selectedBoardListing)}`"
+                            class="listing-detail-action is-primary"
+                        >
+                            <Phone :size="17" aria-hidden="true" />
+                            <span>{{ listingContactPhone(selectedBoardListing) }}</span>
+                        </a>
+                        <a
+                            v-if="listingContactEmail(selectedBoardListing)"
+                            :href="`mailto:${listingContactEmail(selectedBoardListing)}`"
+                            class="listing-detail-action"
+                        >
+                            <Mail :size="17" aria-hidden="true" />
+                            <span>Написати на пошту</span>
+                        </a>
+                        <button type="button" class="listing-detail-action" @click="focusListing(selectedBoardListing)">
+                            <MapPinned :size="17" aria-hidden="true" />
+                            <span>Показати на карті</span>
+                        </button>
+                    </section>
+                </div>
+
+                <div v-else class="listing-board-scroll">
+                    <section class="listing-board-hero">
+                        <h3>Земельні ділянки</h3>
+                        <p>Продаж та оренда земельних ділянок по всій Україні</p>
+                        <div class="listing-board-search-row">
+                            <label class="listing-board-search">
+                                <Search :size="18" aria-hidden="true" />
+                                <input
+                                    v-model="listingBoardSearch"
+                                    placeholder="Пошук за кадастровим номером або назвою..."
+                                    aria-label="Пошук оголошень"
+                                >
+                            </label>
+                            <button type="button" class="listing-board-sell" @click="startListingFromBoard">
+                                <Plus :size="18" aria-hidden="true" />
+                                <span>Продати свою ділянку</span>
+                            </button>
+                        </div>
+                    </section>
+
+                    <div class="listing-board-filters" aria-label="Фільтри оголошень">
+                        <button
+                            v-for="filter in listingBoardFilters"
+                            :key="filter.id"
+                            type="button"
+                            :class="{ 'is-active': listingBoardTypeFilter === filter.id }"
+                            @click="listingBoardTypeFilter = filter.id"
+                        >
+                            <component v-if="filter.icon" :is="filter.icon" :size="15" aria-hidden="true" />
+                            <span>{{ filter.label }}</span>
+                        </button>
+                    </div>
+
+                    <p v-if="listingBoardStatus" class="listing-board-status">{{ listingBoardStatus }}</p>
+
+                    <div v-if="listingsLoading" class="listing-board-empty">
+                        <LoaderCircle class="is-spinning" :size="34" aria-hidden="true" />
+                        <strong>Завантажуємо оголошення</strong>
+                    </div>
+
+                    <div v-else-if="filteredParcelListings.length === 0" class="listing-board-empty">
+                        <SearchX :size="42" aria-hidden="true" />
+                        <strong>Оголошень поки немає</strong>
+                        <span>Спробуйте змінити фільтри або зайдіть пізніше</span>
+                    </div>
+
+                    <div v-else class="listing-board-list">
+                        <p class="listing-board-count">{{ filteredParcelListings.length }} {{ listingCountWord(filteredParcelListings.length) }}</p>
+                        <button
+                            v-for="listing in filteredParcelListings"
+                            :key="listing.id"
+                            type="button"
+                            class="listing-board-card"
+                            @click="openListingDetails(listing)"
+                        >
+                            <span class="listing-board-card-media">
+                                <img v-if="listingPhotoUrl(listing)" :src="listingPhotoUrl(listing) ?? undefined" alt="">
+                                <span
+                                    v-else
+                                    :class="['listing-board-card-placeholder', `is-${listing.listingType}`]"
+                                    aria-hidden="true"
+                                >
+                                    <span>
+                                        <component :is="listingTypeIcon(listing.listingType)" :size="34" aria-hidden="true" />
+                                    </span>
+                                </span>
+                                <span :class="['listing-board-card-badge', `is-${listing.listingType}`]">
+                                    <component :is="listingTypeIcon(listing.listingType)" :size="15" aria-hidden="true" />
+                                    <span>{{ listingTypeShortLabel(listing.listingType) }}</span>
+                                </span>
+                            </span>
+                            <span class="listing-board-card-body">
+                                <strong class="listing-board-card-price">{{ listingPriceLabel(listing) }}</strong>
+                                <strong class="listing-board-card-title">{{ listing.title }}</strong>
+                                <span class="listing-board-card-number">
+                                    <MapPinned :size="14" aria-hidden="true" />
+                                    <span>{{ listing.cadastralNumber }}</span>
+                                </span>
+                                <span v-if="listing.area" class="listing-board-card-area">Площа: {{ listing.area }}</span>
+                                <span class="listing-board-card-footer">
+                                    <strong>{{ listingContactName(listing) }}</strong>
+                                    <span>{{ listingDateLabel(listing.createdAt) }}</span>
+                                </span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </aside>
 
             <aside v-if="selectedParcel" class="parcel-panel" @pointerenter="clearMapHoverState">
                 <div class="panel-header">
@@ -130,12 +309,6 @@
                             <span>Площа: <strong>{{ selectedSketch.area }}</strong></span>
                             <span>Периметр: <strong>{{ selectedSketch.perimeter }}</strong></span>
                         </div>
-                        <dl class="parcel-sketch-edges">
-                            <div v-for="edge in selectedSketch.edges" :key="edge.label">
-                                <dt>{{ edge.label }}</dt>
-                                <dd>{{ edge.length }}</dd>
-                            </div>
-                        </dl>
                     </section>
 
                     <section class="parcel-actions" aria-label="Дії з ділянкою">
@@ -156,6 +329,10 @@
                             <Share2 :size="17" aria-hidden="true" />
                             <span>Поділитися</span>
                         </button>
+                        <button type="button" class="parcel-action is-listing" @click="openListingWizard">
+                            <Plus :size="17" aria-hidden="true" />
+                            <span>Додати оголошення</span>
+                        </button>
                         <button type="button" class="parcel-action" @click="downloadSelectedParcelGeoJson">
                             <FileJson :size="17" aria-hidden="true" />
                             <span>Завантажити GeoJSON</span>
@@ -164,6 +341,55 @@
                             <FileDown :size="17" aria-hidden="true" />
                             <span>Завантажити KML</span>
                         </button>
+                    </section>
+
+                    <section
+                        :class="['parcel-service-orders', { 'is-expanded': parcelServicesExpanded }]"
+                        aria-label="Замовити документи та послуги"
+                    >
+                        <button
+                            type="button"
+                            class="parcel-service-toggle"
+                            :aria-expanded="parcelServicesExpanded"
+                            @click="parcelServicesExpanded = !parcelServicesExpanded"
+                        >
+                            <span>
+                                <strong>Замовити послуги</strong>
+                                <small>Витяг з ДЗК, ДРРП, НГО, кадастровий план</small>
+                            </span>
+                            <em>від 100₴</em>
+                            <ChevronDown :size="18" aria-hidden="true" />
+                        </button>
+                        <div v-if="parcelServicesExpanded" class="parcel-service-body">
+                            <div class="parcel-service-header">
+                                <h3>Оформлення замовлення</h3>
+                                <span>Оплата через Stripe</span>
+                            </div>
+                            <label class="parcel-service-contact">
+                                <span>Email або телефон для отримання документа</span>
+                                <input
+                                    v-model="orderContact"
+                                    autocomplete="email"
+                                    placeholder="name@example.com або +380..."
+                                >
+                            </label>
+                            <div class="parcel-service-grid">
+                                <button
+                                    v-for="service in parcelOrderServices"
+                                    :key="service.id"
+                                    type="button"
+                                    class="parcel-service-button"
+                                    :disabled="orderSubmittingServiceId === service.id"
+                                    @click="createParcelServiceOrder(service.id)"
+                                >
+                                    <FileText v-if="orderSubmittingServiceId !== service.id" :size="16" aria-hidden="true" />
+                                    <LoaderCircle v-else class="is-spinning" :size="16" aria-hidden="true" />
+                                    <span>{{ service.title }}</span>
+                                    <strong>{{ service.price }}₴</strong>
+                                </button>
+                            </div>
+                            <p v-if="orderStatus" class="parcel-service-status">{{ orderStatus }}</p>
+                        </div>
                     </section>
                 </div>
             </aside>
@@ -219,22 +445,254 @@
                     </div>
                 </dl>
             </div>
+
+            <section v-if="listingWizardOpen" class="listing-wizard" aria-label="Додавання оголошення">
+                <header class="listing-wizard-header">
+                    <button type="button" class="listing-back" @click="listingStep === 1 ? closeListingWizard() : previousListingStep()">
+                        <ArrowLeft :size="18" aria-hidden="true" />
+                        <span>{{ listingStep === 1 ? 'Назад' : 'Попередній крок' }}</span>
+                    </button>
+                    <span class="listing-step-counter">{{ listingStep }} / {{ listingWizardSteps.length }}</span>
+                </header>
+
+                <div class="listing-progress" aria-hidden="true">
+                    <span
+                        v-for="(_, index) in listingWizardSteps"
+                        :key="index"
+                        :class="{ 'is-active': index < listingStep }"
+                    ></span>
+                </div>
+                <p class="listing-step-label">{{ listingWizardSteps[listingStep - 1] }}</p>
+
+                <div class="listing-wizard-body">
+                    <article class="listing-parcel-card">
+                        <MapPinned :size="22" aria-hidden="true" />
+                        <span>
+                            <small>Кадастровий номер</small>
+                            <strong>{{ selectedParcel?.cadastral_number }}</strong>
+                        </span>
+                    </article>
+
+                    <template v-if="listingStep === 1">
+                        <h2>Оберіть тип оголошення</h2>
+                        <div class="listing-type-list">
+                            <button
+                                v-for="option in listingTypeOptions"
+                                :key="option.id"
+                                type="button"
+                                :class="['listing-type-option', { 'is-selected': listingDraft.listingType === option.id }]"
+                                @click="listingDraft.listingType = option.id"
+                            >
+                                <span class="listing-type-icon">
+                                    <component :is="option.icon" :size="22" aria-hidden="true" />
+                                </span>
+                                <strong>{{ option.title }}</strong>
+                                <ChevronRight :size="18" aria-hidden="true" />
+                            </button>
+                        </div>
+                    </template>
+
+                    <template v-else-if="listingStep === 2">
+                        <h2>Деталі оголошення</h2>
+                        <div class="listing-form-card">
+                            <label class="listing-field is-price">
+                                <span>Ціна *</span>
+                                <input v-model="listingDraft.price" inputmode="decimal" placeholder="125000">
+                                <select v-model="listingDraft.currency">
+                                    <option v-for="currency in listingCurrencyOptions" :key="currency" :value="currency">
+                                        {{ currency }}
+                                    </option>
+                                </select>
+                            </label>
+                            <label class="listing-field">
+                                <span>Назва оголошення *</span>
+                                <input v-model="listingDraft.title" placeholder="напр. Ділянка біля озера">
+                            </label>
+                            <label class="listing-field">
+                                <span>Площа</span>
+                                <input v-model="listingDraft.area" placeholder="3.9774 га">
+                            </label>
+                            <label class="listing-field">
+                                <span>Опис</span>
+                                <textarea
+                                    v-model="listingDraft.description"
+                                    maxlength="2000"
+                                    placeholder="Опишіть ділянку: розташування, комунікації, підʼїзд..."
+                                ></textarea>
+                                <small>{{ listingDraft.description.length }}/2000</small>
+                            </label>
+                        </div>
+                    </template>
+
+                    <template v-else-if="listingStep === 3">
+                        <h2>Фотографії</h2>
+                        <p class="listing-muted">Завантажте до 5 фото. На цьому етапі вони додаються як preview і метадані.</p>
+                        <div class="listing-form-card">
+                            <label class="listing-upload">
+                                <input type="file" accept="image/*" multiple @change="handleListingPhotos">
+                                <Upload :size="34" aria-hidden="true" />
+                                <strong>Натисніть для вибору фото</strong>
+                                <span>JPG, PNG, WebP - до 5 фото</span>
+                                <small>{{ listingDraft.photos.length }}/5 вибрано</small>
+                            </label>
+                            <div v-if="listingPhotoPreviewUrls.length" class="listing-photo-grid">
+                                <button
+                                    v-for="(url, index) in listingPhotoPreviewUrls"
+                                    :key="url"
+                                    type="button"
+                                    class="listing-photo-preview"
+                                    @click="removeListingPhoto(index)"
+                                >
+                                    <img :src="url" alt="">
+                                    <span>Прибрати</span>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+
+                    <template v-else-if="listingStep === 4">
+                        <h2>Контактна інформація</h2>
+                        <div class="listing-form-card">
+                            <label class="listing-field">
+                                <span><User :size="15" aria-hidden="true" /> Ваше імʼя</span>
+                                <input v-model="listingDraft.contactName" placeholder="Імʼя">
+                            </label>
+                            <label class="listing-field">
+                                <span><Phone :size="15" aria-hidden="true" /> Телефон *</span>
+                                <input v-model="listingDraft.contactPhone" inputmode="tel" placeholder="+380991234567">
+                            </label>
+                            <label class="listing-field">
+                                <span><Mail :size="15" aria-hidden="true" /> Email</span>
+                                <input v-model="listingDraft.contactEmail" autocomplete="email" placeholder="name@example.com">
+                            </label>
+                        </div>
+                    </template>
+
+                    <template v-else>
+                        <h2>Перевірте дані</h2>
+                        <div class="listing-review-card">
+                            <div>
+                                <small>Тип</small>
+                                <strong>{{ selectedListingTypeTitle }}</strong>
+                            </div>
+                            <div>
+                                <small>Ціна</small>
+                                <strong>{{ listingDraft.price }} {{ listingDraft.currency }}</strong>
+                            </div>
+                            <div>
+                                <small>Назва</small>
+                                <strong>{{ listingDraft.title }}</strong>
+                                <p v-if="listingDraft.description">{{ listingDraft.description }}</p>
+                            </div>
+                            <div>
+                                <small>Площа</small>
+                                <strong>{{ listingDraft.area || selectedParcel?.area.declared + ' га' }}</strong>
+                            </div>
+                            <div>
+                                <small>Контакт</small>
+                                <strong>{{ listingDraft.contactName || 'Без імені' }}</strong>
+                                <span>{{ listingDraft.contactPhone }}</span>
+                                <span v-if="listingDraft.contactEmail">{{ listingDraft.contactEmail }}</span>
+                            </div>
+                        </div>
+                        <p class="listing-review-note">
+                            <Check :size="17" aria-hidden="true" />
+                            Публікація зʼявиться на карті одразу в тестовому режимі зі статусом перевірки.
+                        </p>
+                    </template>
+
+                    <p v-if="listingSubmitStatus" class="listing-submit-status">{{ listingSubmitStatus }}</p>
+
+                    <footer class="listing-wizard-actions">
+                        <button type="button" class="listing-secondary" :disabled="listingSubmitting" @click="listingStep === 1 ? closeListingWizard() : previousListingStep()">
+                            Назад
+                        </button>
+                        <button
+                            v-if="listingStep < listingWizardSteps.length"
+                            type="button"
+                            class="listing-primary"
+                            :disabled="!listingCanContinue"
+                            @click="nextListingStep"
+                        >
+                            Далі
+                            <ChevronRight :size="18" aria-hidden="true" />
+                        </button>
+                        <button
+                            v-else
+                            type="button"
+                            class="listing-primary"
+                            :disabled="listingSubmitting || !listingCanContinue"
+                            @click="submitListing"
+                        >
+                            <LoaderCircle v-if="listingSubmitting" class="is-spinning" :size="18" aria-hidden="true" />
+                            <span>{{ listingSubmitting ? 'Публікуємо...' : 'Опублікувати оголошення' }}</span>
+                        </button>
+                    </footer>
+                </div>
+            </section>
+
+            <div v-if="paymentModal" class="payment-modal-backdrop" role="presentation" @click.self="closePaymentModal">
+                <section
+                    :class="['payment-modal', `is-${paymentModal.tone}`]"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="payment-modal-title"
+                >
+                    <button
+                        type="button"
+                        class="payment-modal-close"
+                        title="Закрити"
+                        aria-label="Закрити повідомлення про оплату"
+                        @click="closePaymentModal"
+                    >
+                        <X :size="18" aria-hidden="true" />
+                    </button>
+                    <div class="payment-modal-icon">
+                        <LoaderCircle v-if="paymentModal.tone === 'pending'" class="is-spinning" :size="22" aria-hidden="true" />
+                        <FileText v-else :size="22" aria-hidden="true" />
+                    </div>
+                    <div class="payment-modal-copy">
+                        <h2 id="payment-modal-title">{{ paymentModal.title }}</h2>
+                        <p>{{ paymentModal.message }}</p>
+                    </div>
+                    <button type="button" class="payment-modal-action" @click="closePaymentModal">
+                        Зрозуміло
+                    </button>
+                </section>
+            </div>
         </section>
     </main>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from 'vue';
+import { computed, onMounted, ref, shallowRef, watch, type Component } from 'vue';
 import {
+    ArrowLeft,
+    ChevronDown,
+    ChevronRight,
+    Check,
+    CalendarClock,
     Copy,
     Download,
+    FileText,
     FileDown,
     FileJson,
+    Home,
+    KeyRound,
     Layers,
+    LoaderCircle,
     MapPinned,
+    Newspaper,
+    Plus,
     Route,
     Search,
+    SearchX,
     Share2,
+    Trees,
+    Upload,
+    User,
+    Phone,
+    Mail,
     X,
 } from '@lucide/vue';
 import maplibregl, { LngLatBounds } from 'maplibre-gl';
@@ -276,6 +734,85 @@ type ParcelRights = {
 type ParcelRightsRow = {
     label: string;
     value: string;
+};
+
+type ParcelOrderServiceId = 'dzk_extract' | 'drrp_extract' | 'valuation_extract' | 'cadastral_plan';
+
+type ParcelOrderService = {
+    id: ParcelOrderServiceId;
+    title: string;
+    price: number;
+};
+
+type ParcelOrder = {
+    id: string;
+    status: string;
+    serviceTitle?: string | null;
+};
+
+type PaymentModal = {
+    title: string;
+    message: string;
+    tone: 'success' | 'warning' | 'pending';
+};
+
+type ListingTypeId = 'land_sale' | 'land_with_house_sale' | 'land_rent' | 'long_term_lease';
+
+type ListingCurrency = 'USD' | 'EUR' | 'UAH';
+
+type ListingTypeOption = {
+    id: ListingTypeId;
+    title: string;
+    icon: Component;
+};
+
+type ListingBoardFilter = {
+    id: ListingTypeId | 'all';
+    label: string;
+    icon: Component | null;
+};
+
+type ListingDraft = {
+    listingType: ListingTypeId | null;
+    price: string;
+    currency: ListingCurrency;
+    title: string;
+    area: string;
+    description: string;
+    contactName: string;
+    contactPhone: string;
+    contactEmail: string;
+    photos: File[];
+};
+
+type ListingPhotoPayload = {
+    name: string;
+    size: number;
+    type: string;
+    url: string;
+};
+
+type ParcelListing = {
+    id: string;
+    cadastralNumber: string;
+    listingType: ListingTypeId;
+    title: string;
+    description?: string | null;
+    price: number;
+    currency: ListingCurrency;
+    area?: string | null;
+    status: string;
+    contact?: {
+        name?: string | null;
+        phone?: string | null;
+        email?: string | null;
+    } | null;
+    photos?: Array<{
+        url?: string | null;
+        name?: string | null;
+    }>;
+    centroid?: { lat: number; lng: number } | null;
+    createdAt?: string | null;
 };
 
 type RenderedMapFeature = Feature<Geometry> & {
@@ -385,6 +922,11 @@ const hoverTooltip = ref<HoverTooltip | null>(null);
 const layerPanelCollapsed = ref(true);
 const selectedBaseMapId = ref<BaseMapId>('osm');
 const mapStatus = ref('завантаження карти');
+const orderContact = ref('');
+const orderStatus = ref('');
+const orderSubmittingServiceId = ref<ParcelOrderServiceId | null>(null);
+const parcelServicesExpanded = ref(false);
+const paymentModal = ref<PaymentModal | null>(null);
 let geolocationFallbackActive = false;
 let hoveredFeatureKey: string | null = null;
 let hoverLayersRaised = false;
@@ -424,6 +966,82 @@ const hoverPerfStats = {
 };
 const mapViewStorageKey = 'kadastr-view:map-view:v1';
 const baseMapStorageKey = 'kadastr-view:base-map:v1';
+const orderContactStorageKey = 'kadastr-view:order-contact:v1';
+const parcelOrderServices: ParcelOrderService[] = [
+    { id: 'dzk_extract', title: 'Витяг з ДЗК', price: 100 },
+    { id: 'drrp_extract', title: 'Витяг з ДРРП', price: 300 },
+    { id: 'valuation_extract', title: 'НГО', price: 100 },
+    { id: 'cadastral_plan', title: 'Кадастровий план', price: 100 },
+];
+const listingWizardSteps = ['Тип оголошення', 'Деталі', 'Фото', 'Контакти', 'Перевірка'];
+const listingTypeOptions: ListingTypeOption[] = [
+    { id: 'land_sale', title: 'Продаж земельної ділянки', icon: Trees },
+    { id: 'land_with_house_sale', title: 'Продаж ділянки з будинком', icon: Home },
+    { id: 'land_rent', title: 'Оренда земельної ділянки', icon: KeyRound },
+    { id: 'long_term_lease', title: 'Довгострокова оренда (лізинг)', icon: CalendarClock },
+];
+const listingBoardFilters: ListingBoardFilter[] = [
+    { id: 'all', label: 'Усі', icon: null },
+    { id: 'land_sale', label: 'Продаж землі', icon: Trees },
+    { id: 'land_with_house_sale', label: 'Продаж з будинком', icon: Home },
+    { id: 'land_rent', label: 'Оренда', icon: KeyRound },
+    { id: 'long_term_lease', label: 'Лізинг', icon: CalendarClock },
+];
+const listingCurrencyOptions: ListingCurrency[] = ['USD', 'EUR', 'UAH'];
+
+const listingWizardOpen = ref(false);
+const listingStep = ref(1);
+const listingSubmitting = ref(false);
+const listingSubmitStatus = ref('');
+const listingDraft = ref<ListingDraft>(emptyListingDraft());
+const listingPhotoPreviewUrls = ref<string[]>([]);
+const listingBoardOpen = ref(false);
+const listingBoardSearch = ref('');
+const listingBoardTypeFilter = ref<ListingBoardFilter['id']>('all');
+const listingBoardStatus = ref('');
+const parcelListings = ref<ParcelListing[]>([]);
+const selectedBoardListing = ref<ParcelListing | null>(null);
+const listingsLoading = ref(false);
+
+const selectedListingTypeTitle = computed(() => {
+    const type = listingDraft.value.listingType;
+
+    return listingTypeOptions.find((option) => option.id === type)?.title ?? 'Тип не вибрано';
+});
+
+const listingCanContinue = computed(() => canContinueListingStep(listingStep.value));
+
+const filteredParcelListings = computed(() => {
+    const search = listingBoardSearch.value.trim().toLowerCase();
+
+    return parcelListings.value.filter((listing) => {
+        if (listingBoardTypeFilter.value !== 'all' && listing.listingType !== listingBoardTypeFilter.value) {
+            return false;
+        }
+
+        if (!search) {
+            return true;
+        }
+
+        return [
+            listing.cadastralNumber,
+            listing.title,
+            listing.description ?? '',
+            listing.area ?? '',
+            listingTypeLabel(listing.listingType),
+        ].some((value) => value.toLowerCase().includes(search));
+    });
+});
+
+watch(selectedParcel, () => {
+    if (paymentReturnParams().paymentState) {
+        return;
+    }
+
+    parcelServicesExpanded.value = false;
+    orderStatus.value = '';
+});
+
 const baseMaps: BaseMap[] = [
     {
         id: 'osm',
@@ -584,12 +1202,15 @@ onMounted(() => {
 
     const savedView = loadSavedMapView();
     selectedBaseMapId.value = loadSavedBaseMapId();
+    orderContact.value = window.localStorage.getItem(orderContactStorageKey) ?? '';
+    void hydrateReturnedPayment();
     const initialRouteParcelNumber = parcelNumberFromRoute();
     const initialTerritoryRoute = territoryRouteFromPath();
     const map = new maplibregl.Map({
         container: mapContainer.value,
         style: {
             version: 8,
+            glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
             sources: {
                 osm: {
                     type: 'raster',
@@ -717,6 +1338,9 @@ onMounted(() => {
         mapStatus.value = 'карта готова';
         addExternalKadastrLayer(map);
         const geojson = await loadParcelLayer();
+        await loadParcelListingsLayer();
+        await loadParcelListingsForBoard();
+        bindListingInteractions(map);
         bindMapInteractions(map);
 
         if (initialRouteParcelNumber) {
@@ -1175,6 +1799,10 @@ function clearMapHoverState(): void {
 
 function bindMapInteractions(map: maplibregl.Map): void {
     map.on('click', async (event) => {
+        if (findListingFeatureAtPoint(map, event.point)) {
+            return;
+        }
+
         const feature = findInteractiveFeature(map, event.point, [event.lngLat.lng, event.lngLat.lat]);
 
         if (!feature?.geometry) {
@@ -1186,6 +1814,20 @@ function bindMapInteractions(map: maplibregl.Map): void {
 
     map.on('mousemove', (event) => {
         const startedAt = hoverPerfNow();
+
+        if (findListingFeatureAtPoint(map, event.point)) {
+            map.getCanvas().style.cursor = 'pointer';
+            hoverTooltip.value = null;
+            updateHoveredFeature(null);
+            recordHoverPerf({
+                queryMs: hoverPerfNow() - startedAt,
+                tooltipMs: 0,
+                highlightMs: 0,
+                totalMs: hoverPerfNow() - startedAt,
+            });
+            return;
+        }
+
         const feature = findInteractiveHoverFeature(map, event.point);
         const afterQuery = hoverPerfNow();
         const hasFeature = Boolean(feature?.geometry);
@@ -1508,7 +2150,7 @@ function downloadSelectedSketch(): void {
     const canvas = document.createElement('canvas');
     const scale = 2;
     canvas.width = 520 * scale;
-    canvas.height = 520 * scale;
+    canvas.height = 390 * scale;
 
     const context = canvas.getContext('2d');
 
@@ -1536,23 +2178,6 @@ function downloadSelectedSketch(): void {
     context.font = '700 18px Arial, sans-serif';
     context.fillText(selectedSketch.value.area, 94, 338);
     context.fillText(selectedSketch.value.perimeter, 360, 338);
-
-    context.font = '400 17px Arial, sans-serif';
-    selectedSketch.value.edges.forEach((edge, index) => {
-        const column = index % 2;
-        const row = Math.floor(index / 2);
-        const x = column === 0 ? 28 : 268;
-        const y = 382 + row * 30;
-
-        context.fillStyle = '#4b5563';
-        context.font = '400 17px Arial, sans-serif';
-        context.fillText(edge.label, x, y);
-        context.fillStyle = '#111827';
-        context.font = '700 17px Arial, sans-serif';
-        context.textAlign = 'right';
-        context.fillText(edge.length, x + 196, y);
-        context.textAlign = 'left';
-    });
 
     const link = document.createElement('a');
 
@@ -1631,6 +2256,590 @@ function selectedParcelPublicUrl(): string {
     const encodedNumber = encodeURIComponent(cadastralNumber).replace(/%3A/gi, ':');
 
     return `${window.location.origin}/dilyanka/${encodedNumber}`;
+}
+
+async function createParcelServiceOrder(serviceId: ParcelOrderServiceId): Promise<void> {
+    const parcel = selectedParcel.value;
+
+    if (!parcel) {
+        return;
+    }
+
+    const contact = orderContact.value.trim();
+
+    if (!contact) {
+        orderStatus.value = 'Вкажіть email або телефон, щоб ми могли надіслати документ.';
+        return;
+    }
+
+    orderSubmittingServiceId.value = serviceId;
+    orderStatus.value = 'Створюємо оплату Stripe...';
+    window.localStorage.setItem(orderContactStorageKey, contact);
+
+    try {
+        const response = await fetch(apiUrl('/api/v1/orders'), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+                cadastralNumber: parcel.cadastral_number,
+                serviceId,
+                customer: contact.includes('@')
+                    ? { email: contact }
+                    : { phone: contact },
+            }),
+        });
+        const payload = await response.json() as {
+            data?: { pageUrl?: string };
+            error?: string;
+        };
+
+        if (!response.ok || !payload.data?.pageUrl) {
+            throw new Error(payload.error ?? 'Не вдалося створити рахунок');
+        }
+
+        orderStatus.value = 'Переходимо до оплати...';
+        window.location.assign(payload.data.pageUrl);
+    } catch (error) {
+        orderStatus.value = error instanceof Error
+            ? error.message
+            : 'Не вдалося створити рахунок. Спробуйте ще раз.';
+    } finally {
+        orderSubmittingServiceId.value = null;
+    }
+}
+
+async function hydrateReturnedPayment(): Promise<void> {
+    const { orderId, paymentState } = paymentReturnParams();
+
+    if (!orderId || !paymentState) {
+        return;
+    }
+
+    parcelServicesExpanded.value = true;
+
+    if (paymentState === 'cancel') {
+        orderStatus.value = 'Оплату скасовано. Можна повторити замовлення, коли буде зручно.';
+        paymentModal.value = {
+            title: 'Оплату скасовано',
+            message: 'Замовлення не оплачено. Можна повторити оплату або вибрати іншу послугу.',
+            tone: 'warning',
+        };
+        return;
+    }
+
+    orderStatus.value = 'Перевіряємо оплату Stripe...';
+    paymentModal.value = {
+        title: 'Перевіряємо оплату',
+        message: 'Stripe повернув вас на карту. Зараз перевіряємо статус замовлення.',
+        tone: 'pending',
+    };
+
+    try {
+        const response = await fetch(apiUrl(`/api/v1/orders/${encodeURIComponent(orderId)}`));
+        const payload = await response.json() as { data?: ParcelOrder | null; error?: string };
+
+        if (!response.ok || !payload.data) {
+            throw new Error(payload.error ?? 'Не вдалося перевірити оплату');
+        }
+
+        orderStatus.value = orderStatusMessage(payload.data);
+        paymentModal.value = paymentModalForOrder(payload.data);
+    } catch (error) {
+        orderStatus.value = error instanceof Error
+            ? error.message
+            : 'Оплата пройшла, але не вдалося перевірити статус замовлення.';
+        paymentModal.value = {
+            title: 'Потрібна перевірка',
+            message: orderStatus.value,
+            tone: 'warning',
+        };
+    }
+}
+
+function orderStatusMessage(order: ParcelOrder): string {
+    const serviceTitle = order.serviceTitle ? ` (${order.serviceTitle})` : '';
+
+    if (order.status === 'paid') {
+        return `Оплату отримано${serviceTitle}. Замовлення в обробці.`;
+    }
+
+    if (order.status === 'payment_failed') {
+        return `Оплату не завершено${serviceTitle}. Спробуйте оформити замовлення ще раз.`;
+    }
+
+    return `Платіж очікує підтвердження Stripe${serviceTitle}. Якщо оплата вже списана, статус оновиться після підтвердження.`;
+}
+
+function paymentModalForOrder(order: ParcelOrder): PaymentModal {
+    const serviceTitle = order.serviceTitle ? `: ${order.serviceTitle}` : '';
+
+    if (order.status === 'paid') {
+        return {
+            title: 'Оплату отримано',
+            message: `Замовлення${serviceTitle} прийнято в обробку. Ми підготуємо документ і звʼяжемося з вами за вказаним контактом.`,
+            tone: 'success',
+        };
+    }
+
+    if (order.status === 'payment_failed') {
+        return {
+            title: 'Оплату не завершено',
+            message: 'Платіж не був завершений. Можна повторити замовлення ще раз.',
+            tone: 'warning',
+        };
+    }
+
+    return {
+        title: 'Очікуємо підтвердження',
+        message: 'Stripe ще підтверджує платіж. Якщо кошти списані, статус замовлення оновиться автоматично.',
+        tone: 'pending',
+    };
+}
+
+function closePaymentModal(): void {
+    paymentModal.value = null;
+
+    const url = new URL(window.location.href);
+
+    url.searchParams.delete('payment');
+    url.searchParams.delete('order');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function emptyListingDraft(): ListingDraft {
+    return {
+        listingType: null,
+        price: '',
+        currency: 'USD',
+        title: '',
+        area: '',
+        description: '',
+        contactName: '',
+        contactPhone: '',
+        contactEmail: '',
+        photos: [],
+    };
+}
+
+function openListingWizard(): void {
+    if (!selectedParcel.value) {
+        return;
+    }
+
+    cleanupListingPhotoPreviews();
+    listingDraft.value = {
+        ...emptyListingDraft(),
+        area: `${selectedParcel.value.area.declared} га`,
+        title: defaultListingTitle(selectedParcel.value),
+        contactEmail: orderContact.value.includes('@') ? orderContact.value : '',
+        contactPhone: !orderContact.value.includes('@') ? orderContact.value : '',
+    };
+    listingStep.value = 1;
+    listingSubmitStatus.value = '';
+    listingWizardOpen.value = true;
+}
+
+function closeListingWizard(): void {
+    listingWizardOpen.value = false;
+    listingSubmitting.value = false;
+    listingSubmitStatus.value = '';
+    cleanupListingPhotoPreviews();
+}
+
+function nextListingStep(): void {
+    if (!listingCanContinue.value) {
+        return;
+    }
+
+    listingStep.value = Math.min(listingStep.value + 1, listingWizardSteps.length);
+}
+
+function previousListingStep(): void {
+    listingStep.value = Math.max(1, listingStep.value - 1);
+}
+
+function canContinueListingStep(step: number): boolean {
+    const draft = listingDraft.value;
+
+    if (step === 1) {
+        return draft.listingType !== null;
+    }
+
+    if (step === 2) {
+        return Number.parseFloat(draft.price.replace(',', '.')) > 0 && draft.title.trim().length >= 4;
+    }
+
+    if (step === 4) {
+        return draft.contactPhone.replace(/[^\d+]/g, '').length >= 10;
+    }
+
+    if (step === 5) {
+        return canContinueListingStep(1) && canContinueListingStep(2) && canContinueListingStep(4);
+    }
+
+    return true;
+}
+
+function defaultListingTitle(parcel: Parcel): string {
+    const purpose = parcelPurpose(parcel);
+
+    return purpose === 'Дані відсутні'
+        ? `Ділянка ${parcel.cadastral_number}`
+        : purpose;
+}
+
+function handleListingPhotos(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? [])
+        .filter((file) => file.type.startsWith('image/'))
+        .slice(0, 5);
+
+    cleanupListingPhotoPreviews();
+    listingDraft.value.photos = files;
+    listingPhotoPreviewUrls.value = files.map((file) => URL.createObjectURL(file));
+    input.value = '';
+}
+
+function removeListingPhoto(index: number): void {
+    const previewUrl = listingPhotoPreviewUrls.value[index];
+
+    if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+    }
+
+    listingDraft.value.photos = listingDraft.value.photos.filter((_, photoIndex) => photoIndex !== index);
+    listingPhotoPreviewUrls.value = listingPhotoPreviewUrls.value.filter((_, photoIndex) => photoIndex !== index);
+}
+
+function cleanupListingPhotoPreviews(): void {
+    for (const url of listingPhotoPreviewUrls.value) {
+        URL.revokeObjectURL(url);
+    }
+
+    listingPhotoPreviewUrls.value = [];
+}
+
+async function openListingBoard(): Promise<void> {
+    listingBoardOpen.value = true;
+    listingBoardStatus.value = '';
+    await loadParcelListingsForBoard();
+}
+
+function closeListingBoard(): void {
+    listingBoardOpen.value = false;
+    selectedBoardListing.value = null;
+    listingBoardStatus.value = '';
+}
+
+function startListingFromBoard(): void {
+    if (!selectedParcel.value) {
+        listingBoardStatus.value = 'Оберіть ділянку на карті, а потім додайте оголошення.';
+        return;
+    }
+
+    listingBoardOpen.value = false;
+    openListingWizard();
+}
+
+async function loadParcelListingsForBoard(): Promise<void> {
+    if (listingsLoading.value) {
+        return;
+    }
+
+    listingsLoading.value = true;
+
+    try {
+        const response = await fetch(apiUrl('/api/v1/listings'));
+        const payload = await response.json() as { data?: ParcelListing[]; error?: string };
+
+        if (!response.ok || !Array.isArray(payload.data)) {
+            throw new Error(payload.error ?? 'Не вдалося завантажити оголошення');
+        }
+
+        parcelListings.value = payload.data;
+    } catch (error) {
+        listingBoardStatus.value = error instanceof Error
+            ? error.message
+            : 'Не вдалося завантажити оголошення';
+    } finally {
+        listingsLoading.value = false;
+    }
+}
+
+function openListingDetails(listing: ParcelListing): void {
+    selectedBoardListing.value = listing;
+
+    if (listing.centroid && mapInstance.value) {
+        mapInstance.value.easeTo({
+            center: [listing.centroid.lng, listing.centroid.lat],
+            zoom: Math.max(mapInstance.value.getZoom(), 14),
+            duration: 500,
+        });
+    }
+}
+
+async function focusListing(listing: ParcelListing): Promise<void> {
+    const map = mapInstance.value;
+
+    listingBoardOpen.value = false;
+
+    if (listing.centroid && map) {
+        map.easeTo({
+            center: [listing.centroid.lng, listing.centroid.lat],
+            zoom: Math.max(map.getZoom(), 15.5),
+            duration: 650,
+        });
+    }
+
+    if (listing.cadastralNumber) {
+        await openParcelByNumber(listing.cadastralNumber, true);
+    }
+}
+
+function listingTypeLabel(type: ListingTypeId): string {
+    return listingTypeOptions.find((option) => option.id === type)?.title ?? 'Оголошення';
+}
+
+function listingTypeShortLabel(type: ListingTypeId): string {
+    if (type === 'land_sale') {
+        return 'Продаж землі';
+    }
+
+    if (type === 'land_with_house_sale') {
+        return 'Продаж з будинком';
+    }
+
+    if (type === 'land_rent') {
+        return 'Оренда';
+    }
+
+    return 'Лізинг';
+}
+
+function listingTypeIcon(type: ListingTypeId): Component {
+    return listingTypeOptions.find((option) => option.id === type)?.icon ?? Trees;
+}
+
+function listingStatusLabel(status: string): string {
+    if (status === 'pending_review') {
+        return 'На перевірці';
+    }
+
+    if (status === 'active') {
+        return 'Активне';
+    }
+
+    return status;
+}
+
+function listingPriceLabel(listing: ParcelListing): string {
+    const price = Number(listing.price);
+
+    if (!Number.isFinite(price)) {
+        return 'Ціну уточнюйте';
+    }
+
+    return `${new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(price)} ${listing.currency}`;
+}
+
+function listingPhotoUrl(listing: ParcelListing): string | null {
+    return listing.photos?.find((photo) => photo.url)?.url ?? null;
+}
+
+function listingContactName(listing: ParcelListing): string {
+    return listing.contact?.name?.trim() || 'Власник';
+}
+
+function listingContactPhone(listing: ParcelListing): string {
+    return listing.contact?.phone?.trim() ?? '';
+}
+
+function listingContactEmail(listing: ParcelListing): string {
+    return listing.contact?.email?.trim() ?? '';
+}
+
+function listingDateLabel(value?: string | null): string {
+    if (!value) {
+        return '';
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    return new Intl.DateTimeFormat('uk-UA', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+    }).format(date);
+}
+
+function listingCountWord(count: number): string {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+
+    if (mod10 === 1 && mod100 !== 11) {
+        return 'оголошення';
+    }
+
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+        return 'оголошення';
+    }
+
+    return 'оголошень';
+}
+
+async function submitListing(): Promise<void> {
+    const parcel = selectedParcel.value;
+    const centroid = selectedParcelListingCentroid();
+
+    if (!parcel || !centroid || !listingCanContinue.value) {
+        return;
+    }
+
+    listingSubmitting.value = true;
+    listingSubmitStatus.value = listingDraft.value.photos.length > 0
+        ? 'Оптимізуємо фото...'
+        : 'Публікуємо оголошення...';
+
+    try {
+        const photos = await Promise.all(listingDraft.value.photos.map(compressListingPhoto));
+
+        listingSubmitStatus.value = 'Публікуємо оголошення...';
+
+        const response = await fetch(apiUrl('/api/v1/listings'), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+                cadastralNumber: parcel.cadastral_number,
+                listingType: listingDraft.value.listingType,
+                price: listingDraft.value.price,
+                currency: listingDraft.value.currency,
+                title: listingDraft.value.title,
+                area: listingDraft.value.area,
+                description: listingDraft.value.description,
+                contact: {
+                    name: listingDraft.value.contactName,
+                    phone: listingDraft.value.contactPhone,
+                    email: listingDraft.value.contactEmail,
+                },
+                centroid,
+                photos,
+            }),
+        });
+        const payload = await response.json() as { data?: ParcelListing; error?: string };
+
+        if (!response.ok || !payload.data) {
+            throw new Error(payload.error ?? 'Не вдалося опублікувати оголошення');
+        }
+
+        listingSubmitStatus.value = 'Оголошення додано на карту.';
+        await loadParcelListingsLayer();
+        await loadParcelListingsForBoard();
+        window.setTimeout(() => closeListingWizard(), 700);
+    } catch (error) {
+        listingSubmitStatus.value = error instanceof Error
+            ? error.message
+            : 'Не вдалося опублікувати оголошення. Спробуйте ще раз.';
+    } finally {
+        listingSubmitting.value = false;
+    }
+}
+
+async function compressListingPhoto(file: File): Promise<ListingPhotoPayload> {
+    const image = await loadImageFromFile(file);
+    const maxSize = 1200;
+    const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+        throw new Error('Не вдалося підготувати фото');
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(image, 0, 0, width, height);
+
+    let quality = 0.72;
+    let url = canvas.toDataURL('image/jpeg', quality);
+
+    while (url.length > 500_000 && quality > 0.42) {
+        quality -= 0.08;
+        url = canvas.toDataURL('image/jpeg', quality);
+    }
+
+    if (url.length > 520_000) {
+        throw new Error(`Фото "${file.name}" завелике навіть після оптимізації`);
+    }
+
+    return {
+        name: file.name,
+        size: Math.floor((url.split(',')[1]?.length ?? 0) * 0.75),
+        type: 'image/jpeg',
+        url,
+    };
+}
+
+function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        const objectUrl = URL.createObjectURL(file);
+
+        image.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(image);
+        };
+        image.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error(`Не вдалося прочитати фото "${file.name}"`));
+        };
+        image.src = objectUrl;
+    });
+}
+
+function selectedParcelListingCentroid(): { lat: number; lng: number } | null {
+    const routeCenter = selectedParcelRouteCenter();
+
+    if (routeCenter) {
+        return {
+            lng: routeCenter[0],
+            lat: routeCenter[1],
+        };
+    }
+
+    const centroid = selectedParcel.value?.centroid;
+
+    if (
+        !centroid
+        || !Number.isFinite(centroid.lat)
+        || !Number.isFinite(centroid.lng)
+        || (centroid.lat === 0 && centroid.lng === 0)
+    ) {
+        return null;
+    }
+
+    return {
+        lat: centroid.lat,
+        lng: centroid.lng,
+    };
+}
+
+function paymentReturnParams(): { orderId: string | null; paymentState: string | null } {
+    const params = new URLSearchParams(window.location.search);
+
+    return {
+        orderId: params.get('order'),
+        paymentState: params.get('payment'),
+    };
 }
 
 async function loadParcelOpenRights(cadastralNumber: string): Promise<ParcelRights | null> {
@@ -3142,6 +4351,221 @@ async function loadParcelLayer(): Promise<FeatureCollection> {
     });
 
     return geojson;
+}
+
+async function loadParcelListingsLayer(): Promise<void> {
+    const map = mapInstance.value;
+
+    if (!map) {
+        return;
+    }
+
+    const response = await fetch(apiUrl('/api/v1/listings.geojson'));
+    const geojson = await response.json() as FeatureCollection;
+    const source = map.getSource('parcel-listings') as maplibregl.GeoJSONSource | undefined;
+
+    if (source) {
+        source.setData(geojson);
+        return;
+    }
+
+    map.addSource('parcel-listings', {
+        type: 'geojson',
+        data: geojson,
+    });
+
+    await ensureListingMarkerImages(map);
+
+    map.addLayer({
+        id: 'parcel-listings-dot',
+        type: 'symbol',
+        source: 'parcel-listings',
+        layout: {
+            'icon-image': [
+                'case',
+                ['==', ['get', 'listingType'], 'land_rent'],
+                'listing-marker-rent',
+                ['==', ['get', 'listingType'], 'long_term_lease'],
+                'listing-marker-lease',
+                ['==', ['get', 'listingType'], 'land_with_house_sale'],
+                'listing-marker-house',
+                'listing-marker-land',
+            ],
+            'icon-size': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                5,
+                0.58,
+                14,
+                0.78,
+                18,
+                0.95,
+            ],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+        },
+    });
+
+    map.addLayer({
+        id: 'parcel-listings-label',
+        type: 'symbol',
+        source: 'parcel-listings',
+        minzoom: 10,
+        layout: {
+            'text-field': ['get', 'priceLabel'],
+            'text-size': 12,
+            'text-font': ['Open Sans Bold'],
+            'text-offset': [0, 1.65],
+            'text-anchor': 'top',
+            'text-allow-overlap': false,
+        },
+        paint: {
+            'text-color': '#111827',
+            'text-halo-color': '#ffffff',
+            'text-halo-width': 1.4,
+        },
+    });
+}
+
+async function ensureListingMarkerImages(map: maplibregl.Map): Promise<void> {
+    const markerImages = {
+        'listing-marker-land': listingMarkerSvg(treesIconNode()),
+        'listing-marker-house': listingMarkerSvg(houseIconNode()),
+        'listing-marker-rent': listingMarkerSvg(keyRoundIconNode()),
+        'listing-marker-lease': listingMarkerSvg(calendarClockIconNode()),
+    };
+
+    await Promise.all(Object.entries(markerImages).map(async ([name, svg]) => {
+        if (map.hasImage(name)) {
+            return;
+        }
+
+        const image = await loadSvgImage(svg);
+        map.addImage(name, image);
+    }));
+}
+
+function loadSvgImage(svg: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const image = new Image(48, 48);
+        const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Не вдалося завантажити іконку оголошення'));
+        image.src = svgUrl;
+    });
+}
+
+type LucideIconNode = Array<[string, Record<string, string>]>;
+
+function listingMarkerSvg(iconNode: LucideIconNode): string {
+    return `
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+            <rect x="5" y="5" width="38" height="38" rx="9" fill="#eef7f2"/>
+            <rect x="5" y="5" width="38" height="38" rx="9" fill="none" stroke="white" stroke-width="3"/>
+            <g transform="translate(12 12)" fill="none" stroke="#047857" color="#047857" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                ${lucideIconNodeToSvg(iconNode)}
+            </g>
+        </svg>
+    `;
+}
+
+function lucideIconNodeToSvg(iconNode: LucideIconNode): string {
+    return iconNode.map(([tagName, attrs]) => {
+        const attributes = Object.entries(attrs)
+            .filter(([name]) => name !== 'key')
+            .map(([name, value]) => `${name}="${escapeHtml(value)}"`)
+            .join(' ');
+
+        return `<${tagName} ${attributes}/>`;
+    }).join('');
+}
+
+function treesIconNode(): LucideIconNode {
+    return [
+        ['path', { d: 'M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z' }],
+        ['path', { d: 'M7 16v6' }],
+        ['path', { d: 'M13 19v3' }],
+        ['path', { d: 'M12 19h8.3a1 1 0 0 0 .7-1.7L18 14h.3a1 1 0 0 0 .7-1.7L16 9h.2a1 1 0 0 0 .8-1.7L13 3l-1.4 1.5' }],
+    ];
+}
+
+function houseIconNode(): LucideIconNode {
+    return [
+        ['path', { d: 'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8' }],
+        ['path', { d: 'M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' }],
+    ];
+}
+
+function keyRoundIconNode(): LucideIconNode {
+    return [
+        ['path', { d: 'M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z' }],
+        ['circle', { cx: '16.5', cy: '7.5', r: '.5', fill: 'currentColor' }],
+    ];
+}
+
+function calendarClockIconNode(): LucideIconNode {
+    return [
+        ['path', { d: 'M16 14v2.2l1.6 1' }],
+        ['path', { d: 'M16 2v4' }],
+        ['path', { d: 'M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5' }],
+        ['path', { d: 'M3 10h5' }],
+        ['path', { d: 'M8 2v4' }],
+        ['circle', { cx: '16', cy: '16', r: '6' }],
+    ];
+}
+
+function bindListingInteractions(map: maplibregl.Map): void {
+    map.on('click', 'parcel-listings-dot', (event) => {
+        hoverTooltip.value = null;
+        updateHoveredFeature(null);
+
+        const feature = event.features?.[0];
+
+        if (!feature?.geometry || feature.geometry.type !== 'Point') {
+            return;
+        }
+
+        const properties = feature.properties ?? {};
+        const container = document.createElement('div');
+        container.className = 'listing-map-popup';
+        container.innerHTML = `
+            <strong class="listing-map-popup-title">${escapeHtml(String(properties.title ?? 'Оголошення'))}</strong>
+            <span class="listing-map-popup-price">${escapeHtml(String(properties.priceLabel ?? ''))}</span>
+            <small class="listing-map-popup-number">${escapeHtml(String(properties.cadastralNumber ?? ''))}</small>
+        `;
+
+        new maplibregl.Popup({ closeButton: true, closeOnClick: true, className: 'listing-popup' })
+            .setLngLat(feature.geometry.coordinates as [number, number])
+            .setDOMContent(container)
+            .addTo(map);
+    });
+
+    map.on('mouseenter', 'parcel-listings-dot', () => {
+        map.getCanvas().style.cursor = 'pointer';
+    });
+
+    map.on('mouseleave', 'parcel-listings-dot', () => {
+        map.getCanvas().style.cursor = '';
+    });
+}
+
+function findListingFeatureAtPoint(map: maplibregl.Map, point: maplibregl.PointLike): maplibregl.MapGeoJSONFeature | null {
+    if (!map.getLayer('parcel-listings-dot')) {
+        return null;
+    }
+
+    return map.queryRenderedFeatures(point, { layers: ['parcel-listings-dot'] })[0] ?? null;
+}
+
+function escapeHtml(value: string): string {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
 }
 
 function addExternalKadastrLayer(map: maplibregl.Map): void {
