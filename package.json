@@ -9,6 +9,8 @@
         "data:import-open-leases:sqlite": "OPEN_LEASE_OUTPUT=sqlite node --env-file=.env scripts/import-open-lease-data.mjs",
         "data:sync-open-leases:mongo": "node --env-file=.env scripts/sync-open-lease-sqlite-to-mongo.mjs",
         "dev": "netlify dev",
+        "test": "vitest run",
+        "test:watch": "vitest",
         "vite": "vite",
         "mongo:setup": "node --env-file=.env scripts/setup-mongodb.mjs",
         "typecheck": "vue-tsc --noEmit"
@@ -22,6 +24,7 @@
         "tailwindcss": "^4.0.0",
         "typescript": "^5.9.3",
         "vite": "^8.0.0",
+        "vitest": "^4.1.11",
         "vue-tsc": "^3.3.7"
     },
     "dependencies": {

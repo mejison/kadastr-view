@@ -695,7 +695,7 @@ import {
     Mail,
     X,
 } from '@lucide/vue';
-import maplibregl, { LngLatBounds } from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import { absoluteApiUrl, apiUrl } from './api';
 
@@ -910,6 +910,8 @@ type BaseMap = {
     description: string;
     preview: string;
 };
+
+let maplibreglRuntime: typeof import('maplibre-gl');
 
 const mapContainer = ref<HTMLDivElement | null>(null);
 const mapInstance = shallowRef<maplibregl.Map | null>(null);
@@ -1195,7 +1197,8 @@ const selectedRouteUrl = computed(() => {
         : 'https://www.google.com/maps';
 });
 
-onMounted(() => {
+onMounted(async () => {
+    maplibreglRuntime = await import('maplibre-gl');
     if (!mapContainer.value) {
         return;
     }
@@ -1206,7 +1209,7 @@ onMounted(() => {
     void hydrateReturnedPayment();
     const initialRouteParcelNumber = parcelNumberFromRoute();
     const initialTerritoryRoute = territoryRouteFromPath();
-    const map = new maplibregl.Map({
+    const map = new maplibreglRuntime.Map({
         container: mapContainer.value,
         style: {
             version: 8,
@@ -1321,8 +1324,8 @@ onMounted(() => {
     });
 
     mapInstance.value = map;
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
-    map.addControl(new maplibregl.FullscreenControl(), 'bottom-right');
+    map.addControl(new maplibreglRuntime.NavigationControl({ visualizePitch: true }), 'bottom-right');
+    map.addControl(new maplibreglRuntime.FullscreenControl(), 'bottom-right');
     setupGeolocateControl(map);
     map.on('moveend', () => saveMapView(map));
     window.addEventListener('popstate', () => {
@@ -1441,7 +1444,7 @@ function saveMapView(map: maplibregl.Map): void {
 }
 
 function setupGeolocateControl(map: maplibregl.Map): void {
-    const geolocateControl = new maplibregl.GeolocateControl({
+    const geolocateControl = new maplibreglRuntime.GeolocateControl({
         positionOptions: {
             enableHighAccuracy: false,
             maximumAge: 60000,
@@ -4536,7 +4539,7 @@ function bindListingInteractions(map: maplibregl.Map): void {
             <small class="listing-map-popup-number">${escapeHtml(String(properties.cadastralNumber ?? ''))}</small>
         `;
 
-        new maplibregl.Popup({ closeButton: true, closeOnClick: true, className: 'listing-popup' })
+        new maplibreglRuntime.Popup({ closeButton: true, closeOnClick: true, className: 'listing-popup' })
             .setLngLat(feature.geometry.coordinates as [number, number])
             .setDOMContent(container)
             .addTo(map);
@@ -5027,8 +5030,8 @@ function emptyFeatureCollection(): FeatureCollection {
     };
 }
 
-function boundsForFeatures(features: Feature<Geometry>[]): LngLatBounds {
-    const bounds = new LngLatBounds();
+function boundsForFeatures(features: Feature<Geometry>[]): maplibregl.LngLatBounds {
+    const bounds = new maplibreglRuntime.LngLatBounds();
 
     for (const feature of features) {
         extendBounds(bounds, feature.geometry);
@@ -5037,14 +5040,14 @@ function boundsForFeatures(features: Feature<Geometry>[]): LngLatBounds {
     return bounds;
 }
 
-function boundsForGeometry(geometry: Geometry): LngLatBounds {
-    const bounds = new LngLatBounds();
+function boundsForGeometry(geometry: Geometry): maplibregl.LngLatBounds {
+    const bounds = new maplibreglRuntime.LngLatBounds();
     extendBounds(bounds, geometry);
 
     return bounds;
 }
 
-function extendBounds(bounds: LngLatBounds, geometry: Geometry): void {
+function extendBounds(bounds: maplibregl.LngLatBounds, geometry: Geometry): void {
     if (geometry.type === 'Polygon') {
         for (const ring of geometry.coordinates) {
             for (const point of ring) {
