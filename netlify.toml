@@ -4,11 +4,17 @@ publish = "dist"
 functions = "netlify/functions"
 
 [dev]
-command = "npm run dev"
+command = "npm run vite"
 targetPort = 5173
 port = 8888
 publish = "dist"
 functions = "netlify/functions"
+
+[[redirects]]
+from = "https://www.kadastrview.online/*"
+to = "https://kadastrview.online/:splat"
+status = 301
+force = true
 
 [[redirects]]
 from = "/api/v1/*"
@@ -20,6 +26,46 @@ from = "/sitemap-parcels.xml"
 to = "/.netlify/functions/sitemap-parcels"
 status = 200
 force = true
+
+[[redirects]]
+from = "/about"
+to = "/.netlify/functions/seo-page/about"
+status = 200
+
+[[redirects]]
+from = "/data-sources"
+to = "/.netlify/functions/seo-page/data-sources"
+status = 200
+
+[[redirects]]
+from = "/contact"
+to = "/.netlify/functions/seo-page/contact"
+status = 200
+
+[[redirects]]
+from = "/privacy"
+to = "/.netlify/functions/seo-page/privacy"
+status = 200
+
+[[redirects]]
+from = "/terms"
+to = "/.netlify/functions/seo-page/terms"
+status = 200
+
+[[redirects]]
+from = "/guides/*"
+to = "/.netlify/functions/seo-page/guides/:splat"
+status = 200
+
+[[redirects]]
+from = "/guides"
+to = "/.netlify/functions/seo-page/guides"
+status = 200
+
+[[redirects]]
+from = "/oblast"
+to = "/.netlify/functions/seo-page/oblast"
+status = 200
 
 [[redirects]]
 from = "/dilyanka/*"
@@ -59,6 +105,12 @@ Cache-Control = "public, max-age=3600"
 
 [[headers]]
 for = "/sitemap-static.xml"
+[headers.values]
+Content-Type = "application/xml; charset=utf-8"
+Cache-Control = "public, max-age=3600"
+
+[[headers]]
+for = "/sitemap-pages.xml"
 [headers.values]
 Content-Type = "application/xml; charset=utf-8"
 Cache-Control = "public, max-age=3600"

@@ -21,8 +21,8 @@
                     <div class="brand-block">
                         <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true">
                         <div>
-                            <p class="eyebrow">Карта земельних ділянок</p>
-                            <h1>KadastrView</h1>
+                            <p class="eyebrow">KadastrView</p>
+                            <h1>Кадастрова карта України онлайн</h1>
                         </div>
                     </div>
 

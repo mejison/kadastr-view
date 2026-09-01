@@ -1,441 +1,79 @@
 import { MongoClient } from 'mongodb';
 
 const siteUrl = 'https://kadastrview.online';
-const pageHeaders = {
-    'content-type': 'text/html; charset=utf-8',
-    'cache-control': 'public, max-age=300, s-maxage=3600',
-};
-
+const indexRobots = 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1';
+const noIndexRobots = 'noindex, follow';
+const pageHeaders = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300, s-maxage=3600' };
+const oblasts = [['vinnytska', 'Вінницька область', 'Вінницької області'], ['volynska', 'Волинська область', 'Волинської області'], ['dnipropetrovska', 'Дніпропетровська область', 'Дніпропетровської області'], ['donetska', 'Донецька область', 'Донецької області'], ['zhytomyrska', 'Житомирська область', 'Житомирської області'], ['zakarpatska', 'Закарпатська область', 'Закарпатської області'], ['zaporizka', 'Запорізька область', 'Запорізької області'], ['ivano-frankivska', 'Івано-Франківська область', 'Івано-Франківської області'], ['kyivska', 'Київська область', 'Київської області'], ['kirovohradska', 'Кіровоградська область', 'Кіровоградської області'], ['luhanska', 'Луганська область', 'Луганської області'], ['lvivska', 'Львівська область', 'Львівської області'], ['mykolaivska', 'Миколаївська область', 'Миколаївської області'], ['odeska', 'Одеська область', 'Одеської області'], ['poltavska', 'Полтавська область', 'Полтавської області'], ['rivnenska', 'Рівненська область', 'Рівненської області'], ['sumska', 'Сумська область', 'Сумської області'], ['ternopilska', 'Тернопільська область', 'Тернопільської області'], ['kharkivska', 'Харківська область', 'Харківської області'], ['khersonska', 'Херсонська область', 'Херсонської області'], ['khmelnytska', 'Хмельницька область', 'Хмельницької області'], ['cherkaska', 'Черкаська область', 'Черкаської області'], ['chernivetska', 'Чернівецька область', 'Чернівецької області'], ['chernihivska', 'Чернігівська область', 'Чернігівської області'], ['crimea', 'Автономна Республіка Крим', 'Автономної Республіки Крим'], ['kyiv', 'місто Київ', 'міста Києва'], ['sevastopol', 'місто Севастополь', 'міста Севастополя']];
+const oblastBySlug = new Map(oblasts.map(([slug, name, genitive]) => [slug, { name, genitive }]));
 let mongoClientPromise;
 let mongoUnavailableUntil = 0;
 
 export async function handler(event, context = {}) {
     context.callbackWaitsForEmptyEventLoop = false;
-
-    if (event.httpMethod !== 'GET' && event.httpMethod !== 'HEAD') {
-        return htmlResponse('Method not allowed', 405);
-    }
-
+    if (!['GET', 'HEAD'].includes(event.httpMethod)) return htmlResponse('Method not allowed', 405, noIndexRobots);
     try {
         const path = normalizedPath(event.path);
-
-        if (path.startsWith('dilyanka/')) {
-            return parcelSeoPage(decodeURIComponent(path.replace(/^dilyanka\/+/, '')));
-        }
-
-        return territorySeoPage(path);
+        if (path.startsWith('dilyanka/')) return parcelSeoPage(decodeURIComponent(path.slice('dilyanka/'.length)));
+        return contentPage(path);
     } catch (error) {
         console.error(error);
-
-        return htmlResponse(renderBasePage({
-            canonicalPath: '/',
-            title: 'KadastrView - кадастрова карта України онлайн',
-            description: 'KadastrView - кадастрова карта України онлайн: пошук земельних ділянок за кадастровим номером, межі, площа, власність, призначення та супутникові шари.',
-            heading: 'Кадастрова карта України онлайн',
-            body: '<p>Пошук земельних ділянок за кадастровим номером, перегляд меж, площі, форми власності, цільового призначення та адреси.</p>',
-            structuredData: websiteSchema(),
-        }), 200);
+        return errorPage(500, 'Тимчасова помилка сервісу', 'Спробуйте оновити сторінку пізніше.');
     }
 }
 
 async function parcelSeoPage(cadastralNumber) {
     const normalized = normalizeCadastralNumber(cadastralNumber);
+    if (!isCadastralNumber(normalized)) return errorPage(404, 'Ділянку не знайдено', 'Перевірте формат кадастрового номера та спробуйте ще раз.');
     const parcel = await findParcel(normalized);
-    const resource = parcel ? parcelToResource(parcel) : demoParcel(normalized);
-    const title = `Земельна ділянка ${resource.cadastral_number} - KadastrView`;
-    const description = parcelDescription(resource);
+    if (!parcel) return errorPage(404, 'Ділянку не знайдено', 'У базі KadastrView немає достатньо даних для цієї сторінки. Скористайтеся пошуком на карті.');
+    const resource = parcelToResource(parcel);
+    if (!isIndexableParcel(resource)) return errorPage(404, 'Недостатньо даних про ділянку', 'Сторінка буде доступна, коли для ділянки з’являться достатні відкриті дані.');
     const canonicalPath = `/dilyanka/${encodeURIComponent(resource.cadastral_number).replace(/%3A/gi, ':')}`;
-    const rows = [
-        ['Кадастровий номер', resource.cadastral_number],
-        ['Площа', resource.area.declared ? `${formatArea(resource.area.declared)} га` : 'Дані відсутні'],
-        ['Форма власності', resource.ownership_type?.name ?? 'Дані відсутні'],
-        ['Цільове призначення', resource.purpose?.name ?? resource.purpose?.code ?? 'Дані відсутні'],
-        ['Категорія земель', resource.land_category?.name ?? 'Дані відсутні'],
-        ['Адреса', resource.address ?? 'Україна'],
-    ];
-    const body = `
-        <p>${escapeHtml(description)}</p>
-        <dl>
-            ${rows.map(([label, value]) => `
-                <div>
-                    <dt>${escapeHtml(label)}</dt>
-                    <dd>${escapeHtml(String(value))}</dd>
-                </div>
-            `).join('')}
-        </dl>
-        <p>Інтерактивна карта нижче відкриє межі цієї ділянки, якщо геометрія доступна у поточних відкритих шарах або базі KadastrView.</p>
-    `;
-
-    return htmlResponse(renderBasePage({
-        canonicalPath,
-        title,
-        description,
-        heading: `Земельна ділянка ${resource.cadastral_number}`,
-        body,
-        structuredData: parcelSchema(resource, canonicalPath),
-    }));
+    const rows = [['Кадастровий номер', resource.cadastral_number], ['Площа', `${formatArea(resource.area.declared)} га`], ['Форма власності', resource.ownership_type?.name], ['Цільове призначення', resource.purpose?.name ?? resource.purpose?.code], ['Категорія земель', resource.land_category?.name], ['Розташування', resource.address]].filter(([, value]) => value);
+    return pageResponse({ canonicalPath, title: `Земельна ділянка ${resource.cadastral_number} — кадастрова карта`, description: parcelDescription(resource), heading: `Земельна ділянка ${resource.cadastral_number}`, breadcrumbs: [['Кадастрова карта', '/'], ['Земельна ділянка', canonicalPath]], body: `<p>${escapeHtml(parcelDescription(resource))}</p><dl class="seo-facts">${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(value))}</dd></div>`).join('')}</dl><p>Межі й розташування ділянки можна переглянути на інтерактивній карті після завантаження застосунку. Дані мають довідковий характер.</p>${relatedLinks([['Пошук земельної ділянки за кадастровим номером', '/guides/poshuk-za-kadastrovym-nomerom'], ['Джерела та обмеження даних', '/data-sources']])}`, structuredData: parcelSchema(resource, canonicalPath) });
 }
 
-function territorySeoPage(path) {
-    const [type, ...slugParts] = path.split('/').filter(Boolean);
-    const slug = slugParts.join('/');
-    const territory = territoryLabel(type, slug);
-
-    if (!territory) {
-        return htmlResponse(renderBasePage({
-            canonicalPath: '/',
-            title: 'KadastrView - кадастрова карта України онлайн',
-            description: 'Кадастрова карта України онлайн: пошук земельних ділянок за кадастровим номером, межі, площа, власність і призначення.',
-            heading: 'Кадастрова карта України онлайн',
-            body: '<p>Знайдіть земельну ділянку за кадастровим номером і перегляньте межі на інтерактивній карті України.</p>',
-            structuredData: websiteSchema(),
-        }));
-    }
-
-    const title = `Кадастрова карта ${territory.genitive} - KadastrView`;
-    const description = `Кадастрова карта ${territory.genitive}: пошук земельних ділянок, межі, площа, форма власності, цільове призначення та відкриті кадастрові шари.`;
-
-    return htmlResponse(renderBasePage({
-        canonicalPath: `/${type}/${encodeURIComponent(slug)}`,
-        title,
-        description,
-        heading: `Кадастрова карта ${territory.genitive}`,
-        body: `
-            <p>${escapeHtml(description)}</p>
-            <p>Введіть кадастровий номер у пошук KadastrView, щоб перейти до конкретної земельної ділянки на карті.</p>
-        `,
-        structuredData: websiteSchema(),
-    }));
+function contentPage(path) {
+    const pages = { about: aboutPage(), 'data-sources': dataSourcesPage(), contact: contactPage(), privacy: privacyPage(), terms: termsPage(), guides: guidesHubPage(), 'guides/kadastrovyi-nomer': cadastralNumberGuide(), 'guides/poshuk-za-kadastrovym-nomerom': searchGuide(), 'guides/yak-znayty-dilyanku': findParcelGuide(), oblast: regionsHubPage() };
+    if (pages[path]) return pageResponse(pages[path]);
+    const oblastMatch = path.match(/^oblast\/([a-z-]+)$/);
+    if (oblastMatch && oblastBySlug.has(oblastMatch[1])) return pageResponse(regionPage(oblastMatch[1]));
+    return errorPage(404, 'Сторінку не знайдено', 'Перейдіть на головну сторінку KadastrView, щоб скористатися кадастровою картою.');
 }
 
-function renderBasePage({ canonicalPath, title, description, heading, body, structuredData }) {
-    const canonicalUrl = `${siteUrl}${canonicalPath}`;
-    const jsonLd = JSON.stringify(structuredData).replace(/</g, '\\u003c');
-    const assets = pageAssets();
+function commonPage({ canonicalPath, title, description, heading, body, breadcrumbs = [] }) { return { canonicalPath, title, description, heading, body, breadcrumbs, structuredData: pageSchema({ canonicalPath, title, description, breadcrumbs }) }; }
+function guidesHubPage() { return commonPage({ canonicalPath: '/guides', title: 'Довідник про кадастрову карту та земельні ділянки', description: 'Практичні пояснення: кадастровий номер, пошук земельної ділянки та перевірка меж на карті.', heading: 'Довідник KadastrView', breadcrumbs: [['Довідник', '/guides']], body: `<p>Короткі інструкції, що допомагають користуватися кадастровою картою та правильно інтерпретувати відкриті дані про землю.</p><div class="seo-cards"><article><h2><a href="/guides/kadastrovyi-nomer">Що таке кадастровий номер</a></h2><p>Будова номера земельної ділянки та для чого він потрібен.</p></article><article><h2><a href="/guides/poshuk-za-kadastrovym-nomerom">Пошук за кадастровим номером</a></h2><p>Як знайти межі, площу й доступні відомості про ділянку.</p></article><article><h2><a href="/guides/yak-znayty-dilyanku">Як знайти земельну ділянку</a></h2><p>Що робити, якщо номер не знаходиться, та як перевірити результат.</p></article></div>${relatedLinks([['Кадастрові карти областей', '/oblast'], ['Джерела даних KadastrView', '/data-sources']])}` }); }
+function cadastralNumberGuide() { return commonPage({ canonicalPath: '/guides/kadastrovyi-nomer', title: 'Що таке кадастровий номер земельної ділянки', description: 'Пояснюємо, що таке кадастровий номер, як він виглядає та як використати його для пошуку земельної ділянки.', heading: 'Що таке кадастровий номер', breadcrumbs: [['Довідник', '/guides'], ['Кадастровий номер', '/guides/kadastrovyi-nomer']], body: `<p>Кадастровий номер — унікальний ідентифікатор земельної ділянки в кадастрі. Зазвичай він складається з цифр, розділених двокрапками, наприклад: <strong>5624685900:01:001:0123</strong>.</p><h2>Для чого він потрібен</h2><p>За номером можна знайти ділянку на карті, звірити її межі, площу, цільове призначення та інші доступні довідкові дані.</p><h2>Як використати номер</h2><ol><li>Скопіюйте номер без зайвих пробілів.</li><li>Введіть його в поле пошуку на карті.</li><li>Зіставте результат із відомими вам адресою та площею.</li></ol>${relatedLinks([['Пошук земельної ділянки за кадастровим номером', '/guides/poshuk-za-kadastrovym-nomerom'], ['Як перевірити земельну ділянку на карті', '/guides/yak-znayty-dilyanku']])}` }); }
+function searchGuide() { return commonPage({ canonicalPath: '/guides/poshuk-za-kadastrovym-nomerom', title: 'Пошук земельної ділянки за кадастровим номером', description: 'Як знайти земельну ділянку за кадастровим номером: покрокова інструкція з перевірки меж, площі та призначення.', heading: 'Пошук земельної ділянки за кадастровим номером', breadcrumbs: [['Довідник', '/guides'], ['Пошук за кадастровим номером', '/guides/poshuk-za-kadastrovym-nomerom']], body: `<p>KadastrView допомагає відкрити ділянку на карті за її кадастровим номером і переглянути доступні геодані.</p><ol><li>Введіть кадастровий номер у рядок пошуку.</li><li>Оберіть знайдену ділянку на карті.</li><li>Перевірте межі, площу, призначення та розташування.</li><li>За потреби відкрийте її окреме посилання.</li></ol><h2>Якщо ділянка не знаходиться</h2><p>Перевірте формат номера. Дані можуть бути тимчасово відсутніми в підключених відкритих шарах або потребувати уточнення в офіційному реєстрі.</p>${relatedLinks([['Що таке кадастровий номер', '/guides/kadastrovyi-nomer'], ['Джерела й обмеження даних', '/data-sources']])}` }); }
+function findParcelGuide() { return commonPage({ canonicalPath: '/guides/yak-znayty-dilyanku', title: 'Як знайти та перевірити земельну ділянку на карті', description: 'Практична інструкція, як знайти земельну ділянку на кадастровій карті й перевірити межі, площу та розташування.', heading: 'Як знайти земельну ділянку на карті', breadcrumbs: [['Довідник', '/guides'], ['Як знайти ділянку', '/guides/yak-znayty-dilyanku']], body: `<p>Найнадійніше шукати ділянку за кадастровим номером. Якщо ви вже знайшли її на карті, порівняйте межі з документами, адресою та відомою площею.</p><h2>Що варто перевірити</h2><ul><li>чи збігається кадастровий номер;</li><li>чи відповідає площа вашим документам;</li><li>чи логічно розташовані межі;</li><li>яке цільове призначення показують доступні дані.</li></ul><p>Для правочинів, судових або реєстраційних дій отримуйте офіційні витяги та звертайтеся до фахівців.</p>${relatedLinks([['Пошук за кадастровим номером', '/guides/poshuk-za-kadastrovym-nomerom'], ['Кадастрові карти областей', '/oblast']])}` }); }
+function regionsHubPage() { return commonPage({ canonicalPath: '/oblast', title: 'Кадастрові карти областей України', description: 'Оберіть область, щоб перейти до кадастрової карти та пошуку земельних ділянок у відповідному регіоні.', heading: 'Кадастрові карти областей України', breadcrumbs: [['Області України', '/oblast']], body: `<p>Оберіть область для роботи з кадастровою картою. На сторінці регіону доступний пошук земельної ділянки та посилання на довідкові матеріали.</p><ul class="seo-link-grid">${oblasts.map(([slug, name]) => `<li><a href="/oblast/${slug}">${escapeHtml(name)}</a></li>`).join('')}</ul>${relatedLinks([['Як знайти земельну ділянку', '/guides/yak-znayty-dilyanku'], ['Довідник KadastrView', '/guides']])}` }); }
+function regionPage(slug) { const oblast = oblastBySlug.get(slug); const canonicalPath = `/oblast/${slug}`; return commonPage({ canonicalPath, title: `Кадастрова карта ${oblast.genitive} — земельні ділянки онлайн`, description: `Кадастрова карта ${oblast.genitive}: пошук земельних ділянок за кадастровим номером, перевірка меж, площі та розташування на карті.`, heading: `Кадастрова карта ${oblast.genitive}`, breadcrumbs: [['Області України', '/oblast'], [oblast.name, canonicalPath]], body: `<p>На цій сторінці можна перейти до інтерактивної карти для пошуку земельної ділянки в межах ${escapeHtml(oblast.genitive)}.</p><h2>Як користуватися картою</h2><ol><li>Введіть кадастровий номер ділянки.</li><li>Перевірте її межі, площу та розташування.</li><li>Зіставте інформацію з документами або замовте офіційний витяг для юридично значущих дій.</li></ol><p>Статистику регіону не публікуємо, доки її неможливо надійно обчислити з повного й актуального набору даних.</p>${relatedLinks([['Усі кадастрові карти областей', '/oblast'], ['Пошук за кадастровим номером', '/guides/poshuk-za-kadastrovym-nomerom'], ['Джерела даних', '/data-sources']])}` }); }
+function aboutPage() { return commonPage({ canonicalPath: '/about', title: 'Про KadastrView', description: 'KadastrView — незалежний інформаційний сервіс для пошуку та перегляду земельних ділянок на кадастровій карті України.', heading: 'Про KadastrView', breadcrumbs: [['Про сервіс', '/about']], body: `<p>KadastrView — незалежний інформаційний сервіс для зручного пошуку земельних ділянок і перегляду доступних відкритих геоданих на карті України.</p><h2>Для кого сервіс</h2><p>Для власників, покупців, орендарів, фахівців з нерухомості, землевпорядників та всіх, кому потрібно швидко зорієнтуватися за кадастровим номером.</p><h2>Важливо</h2><p>KadastrView не є офіційним сайтом Держгеокадастру та не замінює державні реєстри, офіційні витяги або професійну юридичну консультацію.</p>${relatedLinks([['Джерела даних', '/data-sources'], ['Контакти', '/contact']])}` }); }
+function dataSourcesPage() { return commonPage({ canonicalPath: '/data-sources', title: 'Джерела даних та обмеження KadastrView', description: 'Звідки KadastrView отримує геодані, які є обмеження та де отримати офіційну інформацію про земельну ділянку.', heading: 'Джерела даних та обмеження', breadcrumbs: [['Джерела даних', '/data-sources']], body: `<p>KadastrView використовує доступні відкриті геопросторові дані, зокрема кадастрові шари, OpenStreetMap і оприлюднені набори даних. Частина інформації завантажується через зовнішні джерела та може оновлюватися з різною періодичністю.</p><h2>Обмеження</h2><p>Відображені межі та атрибути мають довідковий характер, можуть бути неповними або неактуальними. Для юридично значущих рішень отримуйте документи з <a href="https://e.land.gov.ua/" rel="noopener noreferrer">офіційних сервісів Держгеокадастру</a> та інших уповноважених реєстрів.</p><p>KadastrView не є заміною офіційного витягу, державної реєстрації чи консультації землевпорядника або юриста.</p>${relatedLinks([['Про KadastrView', '/about'], ['Як перевірити земельну ділянку', '/guides/yak-znayty-dilyanku']])}` }); }
+function contactPage() { return commonPage({ canonicalPath: '/contact', title: 'Контакти KadastrView', description: 'Контактна сторінка сервісу KadastrView.', heading: 'Контакти', breadcrumbs: [['Контакти', '/contact']], body: `<p>З питань роботи сервісу, даних або партнерства напишіть нам на <a href="mailto:hello@kadastrview.online">hello@kadastrview.online</a>.</p><p>Не надсилайте на цю адресу документи з персональними даними, якщо це не є необхідним для вашого звернення.</p>${relatedLinks([['Про сервіс', '/about'], ['Політика приватності', '/privacy']])}` }); }
+function privacyPage() { return commonPage({ canonicalPath: '/privacy', title: 'Політика приватності KadastrView', description: 'Політика приватності сервісу KadastrView.', heading: 'Політика приватності', breadcrumbs: [['Політика приватності', '/privacy']], body: `<p>KadastrView обробляє лише дані, необхідні для роботи сервісу, звернень користувачів і виконання замовлених послуг. Платіжні дані обробляє платіжний провайдер.</p><p>Для роботи карти можуть використовуватися технічні дані браузера та аналітика. Не вводьте у форму пошуку надмірні персональні дані.</p><p>З питань щодо персональних даних звертайтеся на <a href="mailto:hello@kadastrview.online">hello@kadastrview.online</a>.</p>${relatedLinks([['Умови користування', '/terms'], ['Контакти', '/contact']])}` }); }
+function termsPage() { return commonPage({ canonicalPath: '/terms', title: 'Умови користування KadastrView', description: 'Умови користування кадастровою картою KadastrView.', heading: 'Умови користування', breadcrumbs: [['Умови користування', '/terms']], body: `<p>KadastrView надає довідковий доступ до карти та доступних відкритих даних. Користувач самостійно перевіряє важливу інформацію в офіційних джерелах.</p><p>Не використовуйте відомості з карти як єдину підставу для укладення правочину, визначення меж або інших юридично значущих дій.</p>${relatedLinks([['Джерела та обмеження', '/data-sources'], ['Політика приватності', '/privacy']])}` }); }
 
-    return `<!doctype html>
-<html lang="uk">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-        <meta name="theme-color" content="#1f6f54">
-        <meta name="description" content="${escapeHtml(description)}">
-        <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
-        <meta name="application-name" content="KadastrView">
-        <meta name="apple-mobile-web-app-title" content="KadastrView">
-        <meta name="format-detection" content="telephone=no">
-        <meta name="geo.region" content="UA">
-        <meta name="geo.placename" content="Україна">
-        <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-        <link rel="icon" href="/favicon-48.png" type="image/png" sizes="48x48">
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-        <link rel="manifest" href="/site.webmanifest">
-        <style>
-            html, body, #app { height: 100%; min-height: 100%; }
-            body { margin: 0; background: #f4f1e8; }
-            .seo-static {
-                position: absolute;
-                width: 1px;
-                height: 1px;
-                overflow: hidden;
-                clip: rect(0 0 0 0);
-                white-space: nowrap;
-                clip-path: inset(50%);
-            }
-        </style>
-        ${assets.stylesheet ? `<link rel="stylesheet" href="${assets.stylesheet}">` : ''}
-        <meta property="og:locale" content="uk_UA">
-        <meta property="og:type" content="website">
-        <meta property="og:site_name" content="KadastrView">
-        <meta property="og:title" content="${escapeHtml(title)}">
-        <meta property="og:description" content="${escapeHtml(description)}">
-        <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
-        <meta property="og:image" content="${siteUrl}/og-image.png">
-        <meta property="og:image:type" content="image/png">
-        <meta property="og:image:width" content="1200">
-        <meta property="og:image:height" content="630">
-        <meta name="twitter:card" content="summary_large_image">
-        <meta name="twitter:title" content="${escapeHtml(title)}">
-        <meta name="twitter:description" content="${escapeHtml(description)}">
-        <meta name="twitter:image" content="${siteUrl}/og-image.png">
-        <script type="application/ld+json">${jsonLd}</script>
-        <title>${escapeHtml(title)}</title>
-    </head>
-    <body>
-        <section class="seo-static" aria-label="${escapeHtml(heading)}">
-            <h1>${escapeHtml(heading)}</h1>
-            ${body}
-        </section>
-        <div id="app"></div>
-        <script type="module" src="${assets.script}"></script>
-    </body>
-</html>`;
-}
-
-function pageAssets() {
-    return process.env.NETLIFY_DEV === 'true'
-        ? { script: '/resources/js/app.ts', stylesheet: null }
-        : { script: '/assets/app.js', stylesheet: '/assets/app.css' };
-}
-
-function htmlResponse(body, statusCode = 200) {
-    return { statusCode, headers: pageHeaders, body };
-}
-
-function normalizedPath(path) {
-    return String(path ?? '')
-        .replace(/^\/\.netlify\/functions\/seo-page\/?/, '')
-        .replace(/^\/+/, '')
-        .replace(/\/+$/, '');
-}
-
-async function findParcel(normalizedNumber) {
-    const db = await mongoDb();
-
-    if (!db || normalizedNumber === '') {
-        return null;
-    }
-
-    return db.collection('parcels').findOne({
-        $or: [
-            { cadastral_number_normalized: normalizedNumber },
-            { cadastral_number: normalizedNumber },
-            { cadnum: normalizedNumber },
-        ],
-    });
-}
-
-function parcelToResource(parcel) {
-    return {
-        cadastral_number: parcel.cadastral_number ?? parcel.cadnum ?? '',
-        area: {
-            declared: parcel.area_declared ?? parcel.area ?? 0,
-            unit: parcel.unit ?? 'га',
-        },
-        ownership_type: parcel.ownership_type ? { name: parcel.ownership_type } : null,
-        land_category: parcel.land_category ? { name: parcel.land_category } : null,
-        purpose: parcel.purpose_code ? { code: parcel.purpose_code, name: parcel.purpose_name ?? null } : null,
-        address: parcel.address ?? 'Україна',
-        centroid: parcel.centroid ?? centroidFromGeometry(parcel.geometry ?? parcel.geometries?.find?.((item) => item.is_current !== false)?.geometry),
-        source: {
-            updated_at: parcel.source_updated_at ?? parcel.updated_at ?? null,
-        },
-    };
-}
-
-function demoParcel(cadastralNumber) {
-    return {
-        cadastral_number: cadastralNumber,
-        area: { declared: 0, unit: 'га' },
-        ownership_type: null,
-        land_category: null,
-        purpose: null,
-        address: 'Україна',
-        centroid: null,
-        source: { updated_at: null },
-    };
-}
-
-function parcelDescription(parcel) {
-    const parts = [
-        `Земельна ділянка ${parcel.cadastral_number} на кадастровій карті України`,
-        parcel.area.declared ? `площа ${formatArea(parcel.area.declared)} га` : null,
-        parcel.ownership_type?.name ? `форма власності: ${parcel.ownership_type.name}` : null,
-        parcel.land_category?.name ? `категорія: ${parcel.land_category.name}` : null,
-        parcel.address ? `адреса: ${parcel.address}` : null,
-    ].filter(Boolean);
-
-    return `${parts.join(', ')}. Перегляньте межі, призначення та розташування ділянки в KadastrView.`;
-}
-
-function parcelSchema(parcel, canonicalPath) {
-    const url = `${siteUrl}${canonicalPath}`;
-    const geo = parcel.centroid?.lat && parcel.centroid?.lng
-        ? {
-            '@type': 'GeoCoordinates',
-            latitude: parcel.centroid.lat,
-            longitude: parcel.centroid.lng,
-        }
-        : undefined;
-
-    return {
-        '@context': 'https://schema.org',
-        '@graph': [
-            websiteSchema(),
-            {
-                '@type': 'Place',
-                '@id': `${url}#parcel`,
-                name: `Земельна ділянка ${parcel.cadastral_number}`,
-                url,
-                description: parcelDescription(parcel),
-                address: parcel.address,
-                geo,
-                additionalProperty: [
-                    { '@type': 'PropertyValue', name: 'Кадастровий номер', value: parcel.cadastral_number },
-                    { '@type': 'PropertyValue', name: 'Площа', value: parcel.area.declared ? `${formatArea(parcel.area.declared)} га` : 'Дані відсутні' },
-                    { '@type': 'PropertyValue', name: 'Форма власності', value: parcel.ownership_type?.name ?? 'Дані відсутні' },
-                    { '@type': 'PropertyValue', name: 'Категорія земель', value: parcel.land_category?.name ?? 'Дані відсутні' },
-                ],
-            },
-        ],
-    };
-}
-
-function websiteSchema() {
-    return {
-        '@type': 'WebSite',
-        '@id': `${siteUrl}/#website`,
-        name: 'KadastrView',
-        alternateName: 'Кадастрова карта України онлайн',
-        url: `${siteUrl}/`,
-        inLanguage: 'uk-UA',
-        potentialAction: {
-            '@type': 'SearchAction',
-            target: `${siteUrl}/dilyanka/{search_term_string}`,
-            'query-input': 'required name=search_term_string',
-        },
-    };
-}
-
-function territoryLabel(type, slug) {
-    const oblastNames = {
-        vinnytska: 'Вінницької області',
-        volynska: 'Волинської області',
-        dnipropetrovska: 'Дніпропетровської області',
-        donetska: 'Донецької області',
-        zhytomyrska: 'Житомирської області',
-        zakarpatska: 'Закарпатської області',
-        zaporizka: 'Запорізької області',
-        'ivano-frankivska': 'Івано-Франківської області',
-        kyivska: 'Київської області',
-        kirovohradska: 'Кіровоградської області',
-        luhanska: 'Луганської області',
-        lvivska: 'Львівської області',
-        mykolaivska: 'Миколаївської області',
-        odeska: 'Одеської області',
-        poltavska: 'Полтавської області',
-        rivnenska: 'Рівненської області',
-        sumska: 'Сумської області',
-        ternopilska: 'Тернопільської області',
-        kharkivska: 'Харківської області',
-        khersonska: 'Херсонської області',
-        khmelnytska: 'Хмельницької області',
-        cherkaska: 'Черкаської області',
-        chernivetska: 'Чернівецької області',
-        chernihivska: 'Чернігівської області',
-        crimea: 'Автономної Республіки Крим',
-        kyiv: 'міста Києва',
-        sevastopol: 'міста Севастополя',
-    };
-    const name = slug
-        ? slug.split('/').at(-1).replace(/-/g, ' ')
-        : '';
-
-    if (!name) {
-        return null;
-    }
-
-    if (type === 'oblast' && oblastNames[slug]) {
-        return { genitive: oblastNames[slug] };
-    }
-
-    const titleName = name.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
-    const labels = {
-        oblast: `${titleName} області`,
-        raion: `${titleName} району`,
-        hromada: `${titleName} громади`,
-        settlement: `населеного пункту ${titleName}`,
-    };
-
-    return labels[type] ? { genitive: labels[type] } : null;
-}
-
-function centroidFromGeometry(geometry) {
-    if (!geometry) {
-        return null;
-    }
-
-    const coordinates = [];
-    collectCoordinates(geometry.coordinates, coordinates);
-
-    if (coordinates.length === 0) {
-        return null;
-    }
-
-    const sums = coordinates.reduce((carry, point) => {
-        carry.lng += point[0];
-        carry.lat += point[1];
-        return carry;
-    }, { lat: 0, lng: 0 });
-
-    return {
-        lat: sums.lat / coordinates.length,
-        lng: sums.lng / coordinates.length,
-    };
-}
-
-function collectCoordinates(value, output) {
-    if (!Array.isArray(value)) {
-        return;
-    }
-
-    if (typeof value[0] === 'number' && typeof value[1] === 'number') {
-        output.push(value);
-        return;
-    }
-
-    value.forEach((item) => collectCoordinates(item, output));
-}
-
-function normalizeCadastralNumber(value) {
-    return String(value ?? '').trim().replace(/\s+/g, '');
-}
-
-function formatArea(value) {
-    const number = Number(value);
-
-    return Number.isFinite(number)
-        ? number.toLocaleString('uk-UA', { maximumFractionDigits: 4 })
-        : String(value);
-}
-
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
-
-async function mongoDb() {
-    const uri = process.env.MONGODB_URI;
-
-    if (!uri) {
-        return null;
-    }
-
-    if (Date.now() < mongoUnavailableUntil) {
-        return null;
-    }
-
-    mongoClientPromise ??= MongoClient.connect(uri, {
-        maxPoolSize: 3,
-        serverSelectionTimeoutMS: 4500,
-        connectTimeoutMS: 4500,
-        socketTimeoutMS: 10000,
-    });
-
-    try {
-        const client = await mongoClientPromise;
-
-        return client.db(process.env.MONGODB_DATABASE ?? 'kadastr_view');
-    } catch (error) {
-        mongoClientPromise = null;
-        mongoUnavailableUntil = Date.now() + 60000;
-        console.error('MongoDB connection unavailable', error);
-
-        return null;
-    }
-}
+function pageResponse(page) { return htmlResponse(renderBasePage(page), 200, indexRobots); }
+function errorPage(statusCode, heading, message) { return htmlResponse(renderBasePage({ canonicalPath: null, title: `${heading} — KadastrView`, description: message, heading, body: `<p>${escapeHtml(message)}</p><p><a href="/">Перейти до кадастрової карти</a></p>`, structuredData: websiteSchema(), breadcrumbs: [] }), statusCode, noIndexRobots); }
+function renderBasePage({ canonicalPath, title, description, heading, body, structuredData, breadcrumbs = [] }) { const canonicalUrl = canonicalPath ? `${siteUrl}${canonicalPath}` : null; const jsonLd = JSON.stringify(structuredData).replace(/</g, '\\u003c'); const assets = pageAssets(); return `<!doctype html><html lang="uk"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#1f6f54"><meta name="description" content="${escapeHtml(description)}"><meta name="robots" content="${canonicalUrl ? indexRobots : noIndexRobots}"><link rel="canonical" href="${escapeHtml(canonicalUrl ?? `${siteUrl}/`)}"><link rel="icon" href="/favicon.svg" type="image/svg+xml">${assets.stylesheet ? `<link rel="stylesheet" href="${assets.stylesheet}">` : ''}<meta property="og:locale" content="uk_UA"><meta property="og:type" content="website"><meta property="og:site_name" content="KadastrView"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(description)}">${canonicalUrl ? `<meta property="og:url" content="${escapeHtml(canonicalUrl)}">` : ''}<meta property="og:image" content="${siteUrl}/og-image.png"><meta name="twitter:card" content="summary_large_image"><script type="application/ld+json">${jsonLd}</script><title>${escapeHtml(title)}</title></head><body><section class="seo-document"><a class="seo-skip" href="#seo-main">Перейти до змісту</a><header class="seo-header"><a href="/" class="seo-brand">KadastrView</a><nav aria-label="Основна навігація"><a href="/guides">Довідник</a><a href="/oblast">Області</a><a href="/data-sources">Джерела даних</a></nav></header><main id="seo-main"><nav class="breadcrumbs" aria-label="Навігаційний ланцюжок"><a href="/">Головна</a>${breadcrumbs.map(([label, href]) => ` <span aria-hidden="true">/</span> <a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`).join('')}</nav><article class="seo-article"><h1>${escapeHtml(heading)}</h1>${body}</article></main><footer class="seo-footer"><p>KadastrView — незалежний інформаційний сервіс, не офіційний сайт Держгеокадастру.</p><nav><a href="/about">Про сервіс</a><a href="/data-sources">Джерела даних</a><a href="/contact">Контакти</a><a href="/privacy">Приватність</a><a href="/terms">Умови</a></nav></footer></section><div id="app"></div><script type="module" src="${assets.script}"></script></body></html>`; }
+function relatedLinks(links) { return `<nav class="seo-related" aria-label="Пов’язані матеріали"><h2>Корисні матеріали</h2><ul>${links.map(([label, href]) => `<li><a href="${escapeHtml(href)}">${escapeHtml(label)}</a></li>`).join('')}</ul></nav>`; }
+function pageSchema({ canonicalPath, title, description, breadcrumbs }) { const url = `${siteUrl}${canonicalPath}`; return { '@context': 'https://schema.org', '@graph': [websiteSchema(), { '@type': 'WebPage', '@id': url, url, name: title, description, inLanguage: 'uk-UA', isPartOf: { '@id': `${siteUrl}/#website` } }, breadcrumbSchema(breadcrumbs)] }; }
+function breadcrumbSchema(breadcrumbs) { return { '@type': 'BreadcrumbList', itemListElement: [['Головна', '/'], ...breadcrumbs].map(([name, path], index) => ({ '@type': 'ListItem', position: index + 1, name, item: `${siteUrl}${path}` })) }; }
+function parcelSchema(parcel, canonicalPath) { const url = `${siteUrl}${canonicalPath}`; return { '@context': 'https://schema.org', '@graph': [websiteSchema(), breadcrumbSchema([['Земельна ділянка', canonicalPath]]), { '@type': 'Place', '@id': `${url}#parcel`, name: `Земельна ділянка ${parcel.cadastral_number}`, url, description: parcelDescription(parcel), address: parcel.address, additionalProperty: [{ '@type': 'PropertyValue', name: 'Кадастровий номер', value: parcel.cadastral_number }, { '@type': 'PropertyValue', name: 'Площа', value: `${formatArea(parcel.area.declared)} га` }] }] }; }
+function websiteSchema() { return { '@type': 'WebSite', '@id': `${siteUrl}/#website`, name: 'KadastrView', alternateName: 'Кадастрова карта України онлайн', url: `${siteUrl}/`, inLanguage: 'uk-UA' }; }
+function htmlResponse(body, statusCode, robots) { return { statusCode, headers: { ...pageHeaders, 'x-robots-tag': robots }, body }; }
+function pageAssets() { return process.env.NETLIFY_DEV === 'true' ? { script: '/resources/js/app.ts', stylesheet: null } : { script: '/assets/app.js', stylesheet: '/assets/app.css' }; }
+function normalizedPath(path) { return String(path ?? '').replace(/^\/\.netlify\/functions\/seo-page\/?/, '').replace(/^\/+/, '').replace(/\/+$/, ''); }
+function normalizeCadastralNumber(value) { return String(value ?? '').trim().replace(/\s+/g, ''); }
+function isCadastralNumber(value) { return /^\d{10}:\d{2}:\d{3}:\d{4}$/.test(value); }
+function isIndexableParcel(parcel) { return Boolean(parcel.cadastral_number && Number(parcel.area.declared) > 0 && (parcel.address || parcel.purpose?.name || parcel.land_category?.name) && parcel.centroid); }
+async function findParcel(normalizedNumber) { const db = await mongoDb(); return db ? db.collection('parcels').findOne({ $or: [{ cadastral_number_normalized: normalizedNumber }, { cadastral_number: normalizedNumber }, { cadnum: normalizedNumber }] }) : null; }
+function parcelToResource(parcel) { return { cadastral_number: parcel.cadastral_number ?? parcel.cadnum ?? '', area: { declared: parcel.area_declared ?? parcel.area ?? 0 }, ownership_type: parcel.ownership_type ? { name: parcel.ownership_type } : null, land_category: parcel.land_category ? { name: parcel.land_category } : null, purpose: parcel.purpose_code ? { code: parcel.purpose_code, name: parcel.purpose_name ?? null } : null, address: parcel.address ?? null, centroid: parcel.centroid ?? centroidFromGeometry(parcel.geometry ?? parcel.geometries?.find?.((item) => item.is_current !== false)?.geometry) }; }
+function parcelDescription(parcel) { return [`Земельна ділянка ${parcel.cadastral_number} на кадастровій карті України`, `площа ${formatArea(parcel.area.declared)} га`, parcel.purpose?.name ? `цільове призначення: ${parcel.purpose.name}` : null, parcel.address ? `розташування: ${parcel.address}` : null].filter(Boolean).join(', ') + '. Перегляньте межі та доступні відомості в KadastrView.'; }
+function centroidFromGeometry(geometry) { const coordinates = []; collectCoordinates(geometry?.coordinates, coordinates); if (!coordinates.length) return null; const sums = coordinates.reduce((carry, [lng, lat]) => ({ lng: carry.lng + lng, lat: carry.lat + lat }), { lng: 0, lat: 0 }); return { lat: sums.lat / coordinates.length, lng: sums.lng / coordinates.length }; }
+function collectCoordinates(value, output) { if (!Array.isArray(value)) return; if (typeof value[0] === 'number' && typeof value[1] === 'number') { output.push(value); return; } value.forEach((item) => collectCoordinates(item, output)); }
+function formatArea(value) { const number = Number(value); return Number.isFinite(number) ? number.toLocaleString('uk-UA', { maximumFractionDigits: 4 }) : String(value); }
+function escapeHtml(value) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
+async function mongoDb() { const uri = process.env.MONGODB_URI; if (!uri || Date.now() < mongoUnavailableUntil) return null; mongoClientPromise ??= MongoClient.connect(uri, { maxPoolSize: 3, serverSelectionTimeoutMS: 4500, connectTimeoutMS: 4500, socketTimeoutMS: 10000 }); try { const client = await mongoClientPromise; return client.db(process.env.MONGODB_DATABASE ?? 'kadastr_view'); } catch (error) { mongoClientPromise = null; mongoUnavailableUntil = Date.now() + 60000; console.error('MongoDB connection unavailable', error); return null; } }

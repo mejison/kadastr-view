@@ -8,7 +8,8 @@
         "data:import-open-leases": "node --env-file=.env scripts/import-open-lease-data.mjs",
         "data:import-open-leases:sqlite": "OPEN_LEASE_OUTPUT=sqlite node --env-file=.env scripts/import-open-lease-data.mjs",
         "data:sync-open-leases:mongo": "node --env-file=.env scripts/sync-open-lease-sqlite-to-mongo.mjs",
-        "dev": "vite",
+        "dev": "netlify dev",
+        "vite": "vite",
         "mongo:setup": "node --env-file=.env scripts/setup-mongodb.mjs",
         "typecheck": "vue-tsc --noEmit"
     },

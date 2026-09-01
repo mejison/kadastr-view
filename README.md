@@ -27,7 +27,7 @@ VITE_API_BASE_URL=
 ```bash
 npm install
 npm run mongo:setup
-npx netlify dev
+npm run dev
 ```
 
 Open:
@@ -35,6 +35,10 @@ Open:
 ```text
 http://localhost:8888
 ```
+
+Do not open Vite directly on port `5173`: it does not serve the Netlify
+Functions used by `/api/v1/*`. The `npm run dev` command starts the Netlify
+gateway on port `8888` and Vite behind it.
 
 ## Build
 
