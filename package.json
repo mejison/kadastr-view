@@ -10,6 +10,7 @@
         "data:sync-open-leases:mongo": "node --env-file=.env scripts/sync-open-lease-sqlite-to-mongo.mjs",
         "data:enrich-locations": "node --env-file=.env scripts/enrich-parcel-locations.mjs",
         "data:backfill-centroids": "node --env-file=.env scripts/backfill-parcel-centroids.mjs",
+        "data:demo-vector-tile": "node scripts/generate-demo-vector-tile.mjs",
         "dev": "netlify dev",
         "test": "vitest run",
         "test:watch": "vitest",
@@ -23,10 +24,12 @@
         "@types/geojson": "^7946.0.16",
         "@vitejs/plugin-vue": "^6.0.8",
         "adm-zip": "^0.6.0",
+        "geojson-vt": "^4.0.2",
         "tailwindcss": "^4.0.0",
         "typescript": "^5.9.3",
         "vite": "^8.0.0",
         "vitest": "^4.1.11",
+        "vt-pbf": "^3.1.3",
         "vue-tsc": "^3.3.7"
     },
     "dependencies": {

@@ -962,6 +962,9 @@ let hoverLayersRaised = false;
 let pendingHoveredFeature: Feature<Geometry> | null = null;
 let hoverAnimationFrame: number | null = null;
 const externalKadastrEnabled = true;
+const isLocalPbfDemo = typeof window !== 'undefined' && window.location.pathname === '/pbf-demo';
+const localPbfDemoCenter: [number, number] = [29.0558, 49.22945];
+const localPbfDemoTileBounds: [number, number, number, number] = [29.0478515625, 49.22477272279481, 29.058837890625, 49.23194729854555];
 const ukraineCenter: [number, number] = [31.1656, 48.3794];
 const ukraineNavigationBounds: [[number, number], [number, number]] = [
     [20.2, 43.3],
@@ -982,7 +985,11 @@ const externalSelectedLayerIds = [
     'external-kadastr-land-selected-fill',
     'external-kadastr-land-selected-line',
 ];
-const hoverPerfEnabled = typeof window !== 'undefined' && window.localStorage.getItem('kadastrHoverPerf') === '1';
+// The normal map may opt into hover profiling. It only obscures the console in
+// the isolated PBF demonstration, where it provides no useful signal.
+const hoverPerfEnabled = !isLocalPbfDemo
+    && typeof window !== 'undefined'
+    && window.localStorage.getItem('kadastrHoverPerf') === '1';
 const hoverPerfStats = {
     count: 0,
     applyCount: 0,
@@ -1339,11 +1346,11 @@ onMounted(async () => {
                 },
             ],
         },
-        center: savedView?.center ?? ukraineCenter,
-        zoom: savedView?.zoom ?? 5.2,
+        center: isLocalPbfDemo ? localPbfDemoCenter : (savedView?.center ?? ukraineCenter),
+        zoom: isLocalPbfDemo ? 15.3 : (savedView?.zoom ?? 5.2),
         bearing: savedView?.bearing ?? 0,
         pitch: savedView?.pitch ?? 0,
-        minZoom: 5.2,
+        minZoom: isLocalPbfDemo ? 14.5 : 5.2,
         maxZoom: 22,
         maxBounds: ukraineNavigationBounds,
         renderWorldCopies: false,
@@ -3666,6 +3673,11 @@ function territoryRouteFromPath(): TerritoryRoute | null {
 }
 
 function setParcelRoute(cadastralNumber: string): void {
+    // Keep the demo on /pbf-demo after a click; DEMO:LOCAL isn't a real SEO URL.
+    if (isLocalPbfDemo) {
+        return;
+    }
+
     if (cadastralNumber === 'Вибраний полігон') {
         return;
     }
@@ -4632,10 +4644,15 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
 
     map.addSource('external-kadastr', {
         type: 'vector',
-        tiles: [absoluteApiUrl('/api/v1/tiles/kadastr/{z}/{x}/{y}.pbf')],
-        minzoom: 3,
-        maxzoom: 16,
-        attribution: 'Кадастровий шар: kadastrova-karta.com',
+        tiles: [absoluteApiUrl(isLocalPbfDemo
+            ? '/api/v1/tiles/local-demo/{z}/{x}/{y}.pbf'
+            : '/api/v1/tiles/kadastr/{z}/{x}/{y}.pbf')],
+        minzoom: isLocalPbfDemo ? 15 : 3,
+        maxzoom: isLocalPbfDemo ? 15 : 16,
+        ...(isLocalPbfDemo ? { bounds: localPbfDemoTileBounds } : {}),
+        attribution: isLocalPbfDemo
+            ? 'Кадастровий шар: локальний PBF KadastrView (демо)'
+            : 'Кадастровий шар: kadastrova-karta.com',
     });
 
     map.addLayer({
@@ -4645,8 +4662,10 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
         'source-layer': 'polygons',
         minzoom: externalPolygonMinZoom,
         paint: {
-            'fill-color': cadastralOwnershipFillColor(),
-            'fill-opacity': 0.12,
+            // Make the one locally generated fixture unmistakable against the
+            // satellite basemap. Production cadastral styling stays unchanged.
+            'fill-color': isLocalPbfDemo ? '#facc15' : cadastralOwnershipFillColor(),
+            'fill-opacity': isLocalPbfDemo ? 0.62 : 0.12,
         },
     });
 
@@ -4657,8 +4676,8 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
         'source-layer': 'polygons',
         minzoom: externalPolygonMinZoom,
         paint: {
-            'line-color': cadastralOwnershipLineColor(),
-            'line-width': [
+            'line-color': isLocalPbfDemo ? '#b45309' : cadastralOwnershipLineColor(),
+            'line-width': isLocalPbfDemo ? 3 : [
                 'interpolate',
                 ['linear'],
                 ['zoom'],
@@ -4667,9 +4686,21 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
                 11,
                 0.85,
             ],
-            'line-opacity': 0.72,
+            'line-opacity': isLocalPbfDemo ? 1 : 0.72,
         },
     });
+
+    // The local source deliberately contains only `polygons`, while the live
+    // source also contains `land_polygons`. Its fill/line must be registered
+    // before returning, otherwise a fetched PBF has nothing to render into.
+    if (isLocalPbfDemo) {
+        addExternalHighlightLayers(map, 'polygons');
+        moveLayerToTop(map, 'external-kadastr-polygons-fill');
+        moveLayerToTop(map, 'external-kadastr-polygons-line');
+        externalHoverLayerIds.forEach((layerId) => moveLayerToTop(map, layerId));
+        externalSelectedLayerIds.forEach((layerId) => moveLayerToTop(map, layerId));
+        return;
+    }
 
     map.addLayer({
         id: 'external-kadastr-land-fill',

@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { MongoClient, ObjectId } from 'mongodb';
+import { localDemoVectorTileBase64 } from './demo-vector-tile.mjs';
 
 const jsonHeaders = {
     'content-type': 'application/json; charset=utf-8',
@@ -102,6 +103,11 @@ export async function handler(event, context = {}) {
             return proxyKadastrTile(tileMatch[1], tileMatch[2], tileMatch[3]);
         }
 
+        const localDemoTileMatch = path.match(/^tiles\/local-demo\/(\d+)\/(\d+)\/(\d+)\.pbf$/);
+        if (localDemoTileMatch) {
+            return localDemoVectorTile(localDemoTileMatch[1], localDemoTileMatch[2], localDemoTileMatch[3]);
+        }
+
         const geometryMatch = path.match(/^parcels\/(.+)\/geometry$/);
         if (geometryMatch) {
             return parcelGeometry(decodeURIComponent(geometryMatch[1]));
@@ -174,6 +180,27 @@ async function proxyKadastrTile(z, x, y) {
         statusCode: 200,
         headers: vectorTileHeaders,
         body: tileBuffer.toString('base64'),
+        isBase64Encoded: true,
+    };
+}
+
+function localDemoVectorTile(z, x, y) {
+    // This fixture intentionally has one tile and one synthetic parcel only.
+    // Do not turn unmatched coordinates into redirects or external requests.
+    if (z !== '15' || x !== '19028' || y !== '11221') {
+        return {
+            statusCode: 204,
+            headers: { ...vectorTileHeaders, 'cache-control': 'no-store' },
+            body: '',
+        };
+    }
+
+    return {
+        statusCode: 200,
+        // A demo fixture changes during local development, so never leave a
+        // stale version in the browser's tile cache.
+        headers: { ...vectorTileHeaders, 'cache-control': 'no-store' },
+        body: localDemoVectorTileBase64,
         isBase64Encoded: true,
     };
 }

@@ -37,4 +37,14 @@ describe('public API contracts', () => {
         expect((await request('/api/v1/not-found')).statusCode).toBe(404);
         expect((await request('/api/v1/map/config', 'PUT')).statusCode).toBe(405);
     });
+
+    it('serves the synthetic PBF fixture from our own API without upstream proxying', async () => {
+        const response = await request('/api/v1/tiles/local-demo/15/19028/11221.pbf');
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['content-type']).toBe('application/x-protobuf');
+        expect(response.isBase64Encoded).toBe(true);
+        expect(Buffer.from(response.body, 'base64').byteLength).toBeGreaterThan(100);
+        expect((await request('/api/v1/tiles/local-demo/15/1/1.pbf')).statusCode).toBe(204);
+    });
 });

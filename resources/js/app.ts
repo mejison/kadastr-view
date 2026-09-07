@@ -5,6 +5,7 @@ import { createApp } from 'vue';
 
 // The map application is deliberately split from the HTML SEO shell. Visitors
 // without JavaScript still receive useful content; JS users load the map next.
+// /pbf-demo uses this same application with a first-party, one-tile PBF source.
 void import('./App.vue').then(({ default: App }) => {
     createApp(App).mount('#app');
     document.documentElement.classList.add('app-mounted');
