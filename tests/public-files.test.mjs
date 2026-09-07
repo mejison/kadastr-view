@@ -14,18 +14,19 @@ describe('public SEO assets and configuration', () => {
         expect(homepage).toContain('href="/oblast"');
     });
 
-    it('advertises only the curated page sitemap to crawlers', async () => {
-        const [robots, sitemap, pages] = await Promise.all([
+    it('advertises the dynamic eligibility-aware page sitemap to crawlers', async () => {
+        const [robots, sitemap, config] = await Promise.all([
             read('public/robots.txt'),
             read('public/sitemap.xml'),
-            read('public/sitemap-pages.xml'),
+            read('netlify.toml'),
         ]);
 
         expect(robots).toContain('Sitemap: https://kadastrview.online/sitemap.xml');
         expect(sitemap).toContain('https://kadastrview.online/sitemap-pages.xml');
-        expect(pages).toContain('https://kadastrview.online/guides');
-        expect(pages).toContain('https://kadastrview.online/data-sources');
-        expect(pages).not.toContain('/dilyanka/');
+        expect(config).toContain('to = "/.netlify/functions/sitemap-pages"');
+        expect(config).toContain('from = "/sitemap-parcels.xml"');
+        expect(config).toContain('to = "/.netlify/functions/sitemap-parcels"');
+        expect(config).toContain('from = "/parcel/*"');
     });
 
     it('routes SEO pages to Netlify server rendering', async () => {

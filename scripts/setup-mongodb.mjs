@@ -62,6 +62,18 @@ try {
         },
     ]);
 
+    await db.collection('parcel_locations').createIndexes([
+        {
+            key: { 'spatial.community.katottg': 1, cadastral_number: 1 },
+            name: 'spatial_community_cadastral',
+            partialFilterExpression: { 'spatial.confidence': 'high' },
+        },
+        {
+            key: { 'spatial.confidence': 1, 'spatial.community.katottg': 1 },
+            name: 'spatial_community_indexability',
+        },
+    ]);
+
     await db.collection('parcel_open_rights').createIndexes([
         {
             key: { cadastral_number_normalized: 1 },

@@ -1,6 +1,6 @@
 # SEO route audit
 
-Updated: 2026-09-01. This is the intended post-release indexation policy. Validate the HTTP column against the deployed preview before publishing.
+Updated: 2026-09-06. This is the intended post-release indexation policy. Validate the HTTP column against the deployed preview before publishing.
 
 | Route group | Status | Indexable | Canonical | Sitemap | Internal link | Server HTML | Type |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -10,16 +10,21 @@ Updated: 2026-09-01. This is the intended post-release indexation policy. Valida
 | `/guides/poshuk-za-kadastrovym-nomerom` | 200 | yes | self | yes | guide hub, homepage | yes | guide |
 | `/guides/yak-znayty-dilyanku` | 200 | yes | self | yes | guide hub, homepage | yes | guide |
 | `/oblast` | 200 | yes | self | yes | homepage, guide pages | yes | region hub |
-| `/oblast/:slug` (27 allowlisted slugs) | 200 | yes | self | yes | region hub | yes | region page |
+| `/oblast/:slug` (27 allowlisted slugs) with at least 25 valid cadastral records | 200 | yes | self | yes | region hub | yes | region page |
+| `/oblast/:slug` below the data threshold | 200 | noindex,follow | self | no | not linked from region hub | yes | data-status page |
 | `/about`, `/data-sources`, `/contact`, `/privacy`, `/terms` | 200 | yes | self | yes | footer | yes | trust/legal |
-| `/dilyanka/:number` with complete known data | 200 | yes | self | no | direct/shared links | yes | parcel page |
+| `/dilyanka/:number` with valid number, address, positive public area and land-use code | 200 | yes | self | yes | oblast pages, related parcels, sitemap | yes | parcel page |
 | `/dilyanka/:number` invalid, unknown or incomplete | 404 | no | homepage fallback only | no | n/a | yes | error |
 | `/raion/*`, `/hromada/*`, `/settlement/*` | 404 | no | homepage fallback only | no | n/a | yes | unsupported location |
 | `/api/*`, `/.netlify/*` | API | no | n/a | no | n/a | no | utility |
 
 ## Parcel policy
 
-A parcel page can be indexed only when the cadastral number is valid, the parcel exists in MongoDB, its area is positive, a location or land attribute is present, and usable geometry/centroid data exists. No parcel URL is included in the primary sitemap.
+A parcel page can be indexed only when the cadastral number matches `##########:##:###:####` and a public open-data record has positive area, address and land-use code. The page exposes no tenant, landlord, contract or other personal fields. The application does not create pages for raions, hromadas or settlements until a real, stable location hierarchy exists in MongoDB.
+
+## Sitemap policy
+
+`/sitemap.xml` indexes dynamic `/sitemap-pages.xml` and `/sitemap-parcels.xml` endpoints. The page sitemap contains curated static pages and oblast URLs approved by the shared eligibility rule. The parcel sitemap contains only deduplicated public records that pass the same parcel quality gate; it contains no personal fields.
 
 ## Canonical policy
 

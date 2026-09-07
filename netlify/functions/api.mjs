@@ -66,6 +66,11 @@ export async function handler(event, context = {}) {
             return cadastralLookup(url.searchParams.get('number') ?? '');
         }
 
+        const locationMatch = path.match(/^locations\/(.+)$/);
+        if (locationMatch) {
+            return parcelLocation(decodeURIComponent(locationMatch[1]));
+        }
+
         if (path === 'parcels.geojson') {
             return parcelsGeoJson(Number(url.searchParams.get('limit') ?? 12000));
         }
@@ -1133,8 +1138,14 @@ async function cadastralLookup(cadastralNumber) {
     }
 
     const db = await mongoDb();
+    if (!db) {
+        return jsonResponse({ error: 'Database temporarily unavailable' }, 503);
+    }
     const cached = db
         ? await db.collection('parcel_lookups').findOne({ cadastral_number: normalized })
+        : null;
+    const savedLocation = db
+        ? await db.collection('parcel_locations').findOne({ cadastral_number: normalized }, { projection: { _id: 0, location: 1, spatial: 1 } })
         : null;
 
     if (cached?.centroid?.lat && cached?.centroid?.lng) {
@@ -1142,10 +1153,18 @@ async function cadastralLookup(cadastralNumber) {
             data: {
                 cadastral_number: normalized,
                 centroid: cached.centroid,
-                source_url: cached.source_url,
+                location: savedLocation?.location ?? null,
+                spatial_community: savedLocation?.spatial?.confidence === 'high' ? savedLocation.spatial.community : null,
+                source: 'kadastrview-mongodb',
                 cached: true,
             },
         });
+    }
+
+    // The production API is intentionally local-first.  A remote lookup is
+    // opt-in for an operator during migration, never a hidden dependency.
+    if (process.env.EXTERNAL_CADASTRAL_LOOKUP_ENABLED !== 'true') {
+        return jsonResponse({ data: null, reason: 'centroid_not_imported' }, 404);
     }
 
     const sourceUrl = `https://kadastrova-karta.com/dilyanka/${encodeURIComponent(normalized)}`;
@@ -1187,6 +1206,30 @@ async function cadastralLookup(cadastralNumber) {
     }
 
     return jsonResponse({ data });
+}
+
+async function parcelLocation(cadastralNumber) {
+    const normalized = normalizeCadastralNumber(cadastralNumber);
+    if (!isCadastralNumber(normalized)) return jsonResponse({ data: null }, 422);
+    const db = await mongoDb();
+    if (!db) return jsonResponse({ data: null }, 503);
+    const document = await db.collection('parcel_locations').findOne(
+        { cadastral_number: normalized },
+        { projection: { _id: 0, cadastral_number: 1, location: 1, spatial: 1, updated_at: 1 } },
+    );
+    if (!document) return jsonResponse({ data: null }, 404);
+    const spatial = document.spatial?.confidence === 'high' ? document.spatial : null;
+    return jsonResponse({
+        data: {
+            cadastral_number: normalized,
+            centroid: spatial?.centroid ?? null,
+            location: document.location ?? null,
+            spatial_community: spatial?.community ?? null,
+            confidence: spatial?.confidence ?? document.location?.confidence ?? null,
+            updated_at: document.updated_at ?? null,
+            source: 'kadastrview-mongodb',
+        },
+    });
 }
 
 async function findParcel(normalizedNumber) {

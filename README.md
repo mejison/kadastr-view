@@ -64,6 +64,52 @@ When the production domain changes, update it in:
 - `public/sitemap.xml`
 - `public/og-image.svg`
 
+## Local administrative-location enrichment
+
+`data:enrich-locations` enriches public parcel records locally with the
+current KATOTTG hierarchy (oblast, district, hromada, settlement). It downloads
+the free classifier dump once into `.cache/`, uses the KOATUU component already
+embedded in the cadastral number, and writes only to the separate
+`parcel_locations` collection. It makes no request to a cadastral service per
+parcel and does not copy personal fields.
+
+Always inspect the proposed coverage first:
+
+```bash
+npm run data:enrich-locations -- --dry-run --refresh
+```
+
+Then write in restart-safe batches:
+
+```bash
+npm run data:enrich-locations -- --batch-size=500
+npm run data:enrich-locations -- --resume
+```
+
+`--resume` skips already saved cadastral numbers. The generated report is stored
+at `storage/location-enrichment-report.json` (ignored by Git). Only high- and
+medium-confidence matches should later be considered for indexable location
+pages; low-confidence oblast-only matches must not create such pages.
+
+### Centroid backfill and spatial validation
+
+The map can obtain a centroid for an individual searched cadastral number. The
+following command fetches a deliberately small dry-run sample and spatially
+matches it against public community boundaries. It is resumable because already
+cached centroids are skipped:
+
+```bash
+npm run data:backfill-centroids
+```
+
+Writing is deliberately explicit. This external-source workflow must be run
+only where its source terms and request limits permit it; it stops on HTTP 403
+or 429 and does not use any rate-limit bypasses:
+
+```bash
+npm run data:backfill-centroids -- --write --limit=0 --delay-ms=1200
+```
+
 ## API
 
 The frontend keeps stable API paths:

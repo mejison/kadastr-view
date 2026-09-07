@@ -267,6 +267,10 @@
                             <dt>Адреса</dt>
                             <dd>{{ parcelAddress(selectedParcel) }}</dd>
                         </div>
+                        <div v-if="parcelAdministrativeLocation(selectedParcel)" class="is-wide">
+                            <dt>Адміністративне розташування</dt>
+                            <dd>{{ parcelAdministrativeLocation(selectedParcel) }}</dd>
+                        </div>
                     </dl>
 
                     <section v-if="shouldShowParcelRights(selectedParcel)" class="parcel-rights" aria-label="Оренда та речові права">
@@ -710,6 +714,27 @@ type Parcel = {
     freshness_status: string;
     source: { name: string; updated_at: string; official: boolean };
     centroid: { lat: number; lng: number };
+    location?: SavedParcelLocation | null;
+};
+
+type LocationUnit = {
+    name?: string | null;
+    type?: string | null;
+};
+
+type SavedParcelLocation = {
+    location?: {
+        oblast?: LocationUnit | null;
+        district?: LocationUnit | null;
+        community?: LocationUnit | null;
+        settlement?: LocationUnit | null;
+    } | null;
+    spatial_community?: {
+        name?: string | null;
+        district?: string | null;
+        oblast?: string | null;
+    } | null;
+    confidence?: string | null;
 };
 
 type ParcelRights = {
@@ -879,7 +904,9 @@ type ExternalLookup = {
         lat: number;
         lng: number;
     };
-    source_url: string;
+    location?: SavedParcelLocation['location'];
+    spatial_community?: SavedParcelLocation['spatial_community'];
+    source?: string;
 };
 
 type RegionHint = {
@@ -1589,6 +1616,7 @@ async function searchParcel(
             ? selectedMapFeatureForSketch(renderedFeature, manualQuery) ?? selectedFeature
             : selectedFeature;
         selectedParcel.value = parcel;
+        void enrichSelectedParcelLocation(parcel.cadastral_number);
         selectedSketch.value = sketchFromGeometry(sketchFeature.geometry, parcel);
         selectedParcelFeature.value = toPlainFeature(sketchFeature);
         searchStatus.value = 'Знайдено';
@@ -1643,6 +1671,19 @@ async function findFeatureAfterExternalLookup(cadastralNumber: string): Promise<
     searchStatus.value = 'Перевіряю ділянку в завантажених tiles...';
 
     return retryVisibleFeatureSearch(cadastralNumber, 5);
+}
+
+async function enrichSelectedParcelLocation(cadastralNumber: string): Promise<void> {
+    try {
+        const response = await fetch(apiUrl(`/api/v1/locations/${encodeURIComponent(cadastralNumber)}`));
+        if (!response.ok) return;
+        const payload = await response.json() as { data?: SavedParcelLocation | null };
+        if (!payload.data || selectedParcel.value?.cadastral_number !== cadastralNumber) return;
+        selectedParcel.value = { ...selectedParcel.value, location: payload.data };
+    } catch {
+        // Location enrichment is optional UI context. A map result remains usable
+        // if the background migration has not reached this cadastral number yet.
+    }
 }
 
 async function findFeatureAfterRegionalJump(cadastralNumber: string): Promise<RenderedMapFeature | null> {
@@ -3602,6 +3643,7 @@ async function selectRenderedFeature(feature: RenderedMapFeature): Promise<void>
         ...parcel,
         rights: await preferredParcelRights(cadastralNumber, parcel.rights),
     };
+    void enrichSelectedParcelLocation(cadastralNumber);
     selectedSketch.value = sketchFromGeometry(sketchFeature.geometry, parcel);
     selectedParcelFeature.value = toPlainFeature(sketchFeature);
     setParcelRoute(cadastralNumber);
@@ -3872,6 +3914,18 @@ function parcelAddress(parcel: Parcel): string {
     const address = parcel.address?.trim();
 
     return address && address !== 'Україна' ? address : 'Дані відсутні';
+}
+
+function parcelAdministrativeLocation(parcel: Parcel): string | null {
+    const saved = parcel.location;
+    if (saved?.confidence !== 'high') return null;
+    const values = [
+        saved.location?.settlement?.name,
+        saved.spatial_community?.name ?? saved.location?.community?.name,
+        saved.spatial_community?.district ?? saved.location?.district?.name,
+        saved.spatial_community?.oblast ?? saved.location?.oblast?.name,
+    ].map((value) => String(value ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    return values.length ? [...new Set(values)].join(', ') : null;
 }
 
 function shouldShowParcelRights(parcel: Parcel): boolean {
