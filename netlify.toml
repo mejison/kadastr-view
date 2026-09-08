@@ -46,12 +46,6 @@ status = 301
 force = true
 
 [[redirects]]
-from = "/pbf-demo"
-to = "/index.html"
-status = 200
-force = true
-
-[[redirects]]
 from = "/about"
 to = "/.netlify/functions/seo-page/about"
 status = 200

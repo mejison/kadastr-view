@@ -5,7 +5,6 @@ import { centroidFromHtml, communityForPoint } from './spatial-location.mjs';
 
 const CADASTRAL = /^\d{10}:\d{2}:\d{3}:\d{4}$/;
 const DEFAULT_COMMUNITY_BOUNDARIES_URL = 'https://raw.githubusercontent.com/bnotezz/ua-settlements/main/assets/maps/communities.geojson';
-const DEFAULT_CENTROID_SOURCE = 'https://kadastrova-karta.com/dilyanka/';
 const values = process.argv.slice(2);
 const has = (name) => values.includes(name);
 const value = (name, fallback) => values.find((item) => item.startsWith(`${name}=`))?.slice(name.length + 1) ?? fallback;
@@ -15,12 +14,15 @@ const limit = Math.max(0, Number(value('--limit', '10')));
 const delayMs = Math.max(500, Number(value('--delay-ms', '1200')));
 const cachePath = resolve(value('--boundaries-file', '.cache/community-boundaries.geojson'));
 const reportPath = resolve(value('--report', 'storage/centroid-backfill-report.json'));
-const centroidSource = value('--centroid-source', process.env.PARCEL_CENTROID_SOURCE_BASE ?? DEFAULT_CENTROID_SOURCE);
+// This legacy enrichment command must never silently scrape a third-party service.
+// Supply a source explicitly only when an authorised source is available.
+const centroidSource = value('--centroid-source', process.env.PARCEL_CENTROID_SOURCE_BASE ?? '');
 const boundariesSource = value('--boundaries-source', process.env.COMMUNITY_BOUNDARIES_URL ?? DEFAULT_COMMUNITY_BOUNDARIES_URL);
 const uri = process.env.MONGODB_URI;
 const databaseName = process.env.MONGODB_DATABASE ?? 'kadastr_view';
 
 if (!uri) throw new Error('MONGODB_URI is required.');
+if (!centroidSource) throw new Error('Set PARCEL_CENTROID_SOURCE_BASE or pass --centroid-source. No third-party centroid source is configured by default.');
 if (!write) console.log('Dry run: no MongoDB documents will be written. Add --write to persist results.');
 
 const boundaries = await loadBoundaries();

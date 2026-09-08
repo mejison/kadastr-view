@@ -962,16 +962,26 @@ let hoverLayersRaised = false;
 let pendingHoveredFeature: Feature<Geometry> | null = null;
 let hoverAnimationFrame: number | null = null;
 const externalKadastrEnabled = true;
-const isLocalPbfDemo = typeof window !== 'undefined' && window.location.pathname === '/pbf-demo';
-const localPbfDemoCenter: [number, number] = [29.0558, 49.22945];
-const localPbfDemoTileBounds: [number, number, number, number] = [29.0478515625, 49.22477272279481, 29.058837890625, 49.23194729854555];
+const cadastralTileSource = import.meta.env.VITE_CADASTRAL_TILE_SOURCE ?? 'own-r2';
+const isLocalOwnPbfSource = cadastralTileSource === 'own-files';
+const isOwnPbfSource = cadastralTileSource === 'own-r2' || isLocalOwnPbfSource;
+const ownPbfTileBaseUrl = (import.meta.env.VITE_OWN_PBF_TILE_BASE_URL
+    ?? 'https://tiles.kadastrview.online/kadastr/v1').replace(/\/+$/, '');
+const configuredOwnPbfMinZoom = Number(import.meta.env.VITE_OWN_PBF_MIN_ZOOM ?? 10);
+const ownPbfMinZoom = Number.isFinite(configuredOwnPbfMinZoom)
+    ? Math.max(0, Math.min(13, configuredOwnPbfMinZoom))
+    : 13;
 const ukraineCenter: [number, number] = [31.1656, 48.3794];
 const ukraineNavigationBounds: [[number, number], [number, number]] = [
     [20.2, 43.3],
     [41.6, 53.3],
 ];
 const overviewParcelMinZoom = 8.5;
-const externalPolygonMinZoom = 10.75;
+// Our full-detail cadastral archive is stored at z13. Do not stop a parcel
+// search below that level: MapLibre overzooms z13 cleanly, but lower zooms
+// have no own parcel tile to query yet.
+const externalPolygonMinZoom = isOwnPbfSource ? ownPbfMinZoom : 10.75;
+const cadastralSearchZoom = isOwnPbfSource ? 14.5 : 11.5;
 const emptyExternalFeatureFilter: maplibregl.FilterSpecification = ['==', ['get', '__kadastr_view_empty__'], true];
 const externalHoverLayerIds = [
     'external-kadastr-polygons-hover-fill',
@@ -985,10 +995,7 @@ const externalSelectedLayerIds = [
     'external-kadastr-land-selected-fill',
     'external-kadastr-land-selected-line',
 ];
-// The normal map may opt into hover profiling. It only obscures the console in
-// the isolated PBF demonstration, where it provides no useful signal.
-const hoverPerfEnabled = !isLocalPbfDemo
-    && typeof window !== 'undefined'
+const hoverPerfEnabled = typeof window !== 'undefined'
     && window.localStorage.getItem('kadastrHoverPerf') === '1';
 const hoverPerfStats = {
     count: 0,
@@ -1346,11 +1353,11 @@ onMounted(async () => {
                 },
             ],
         },
-        center: isLocalPbfDemo ? localPbfDemoCenter : (savedView?.center ?? ukraineCenter),
-        zoom: isLocalPbfDemo ? 15.3 : (savedView?.zoom ?? 5.2),
+        center: savedView?.center ?? ukraineCenter,
+        zoom: savedView?.zoom ?? 5.2,
         bearing: savedView?.bearing ?? 0,
         pitch: savedView?.pitch ?? 0,
-        minZoom: isLocalPbfDemo ? 14.5 : 5.2,
+        minZoom: 5.2,
         maxZoom: 22,
         maxBounds: ukraineNavigationBounds,
         renderWorldCopies: false,
@@ -1677,7 +1684,7 @@ async function findFeatureAfterExternalLookup(cadastralNumber: string): Promise<
     await sleep(600);
     searchStatus.value = 'Перевіряю ділянку в завантажених tiles...';
 
-    return retryVisibleFeatureSearch(cadastralNumber, 5);
+    return retryVisibleFeatureSearch(cadastralNumber, isOwnPbfSource ? 24 : 5);
 }
 
 async function enrichSelectedParcelLocation(cadastralNumber: string): Promise<void> {
@@ -1704,7 +1711,7 @@ async function findFeatureAfterRegionalJump(cadastralNumber: string): Promise<Re
     searchStatus.value = `Переходжу в ${hint.name}...`;
     map.easeTo({
         center: hint.center,
-        zoom: hint.zoom,
+        zoom: isOwnPbfSource ? Math.max(hint.zoom, cadastralSearchZoom) : hint.zoom,
         duration: 650,
     });
 
@@ -1712,22 +1719,22 @@ async function findFeatureAfterRegionalJump(cadastralNumber: string): Promise<Re
     await sleep(350);
     searchStatus.value = 'Перевіряю завантажені кадастрові tiles...';
 
-    let feature = await retryVisibleFeatureSearch(cadastralNumber, 3);
+    let feature = await retryVisibleFeatureSearch(cadastralNumber, isOwnPbfSource ? 24 : 3);
 
-    if (feature?.geometry) {
+    if (feature?.geometry || isOwnPbfSource) {
         return feature;
     }
 
     searchStatus.value = `Наближаю ${hint.name} для детальніших tiles...`;
     map.easeTo({
         center: hint.center,
-        zoom: Math.max(hint.zoom, 11.5),
+        zoom: Math.max(hint.zoom, cadastralSearchZoom),
         duration: 650,
     });
 
     await waitForMapIdle(map);
     await sleep(500);
-    feature = await retryVisibleFeatureSearch(cadastralNumber, 3);
+    feature = await retryVisibleFeatureSearch(cadastralNumber, isOwnPbfSource ? 24 : 3);
 
     return feature;
 }
@@ -3673,11 +3680,6 @@ function territoryRouteFromPath(): TerritoryRoute | null {
 }
 
 function setParcelRoute(cadastralNumber: string): void {
-    // Keep the demo on /pbf-demo after a click; DEMO:LOCAL isn't a real SEO URL.
-    if (isLocalPbfDemo) {
-        return;
-    }
-
     if (cadastralNumber === 'Вибраний полігон') {
         return;
     }
@@ -3865,7 +3867,7 @@ function parcelFromFeature(feature: RenderedMapFeature, cadastralNumber: string)
         ?? stringProperty(properties.landuse);
     const address = stringProperty(properties.address);
     const sourceName = stringProperty(properties.source_name)
-        ?? (feature.source === 'external-kadastr' ? 'kadastrova-karta vector tiles' : 'Відкритий геошар');
+        ?? (feature.source === 'external-kadastr' ? 'KadastrView vector tiles' : 'Відкритий геошар');
 
     return {
         cadastral_number: cadastralNumber,
@@ -4644,15 +4646,12 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
 
     map.addSource('external-kadastr', {
         type: 'vector',
-        tiles: [absoluteApiUrl(isLocalPbfDemo
-            ? '/api/v1/tiles/local-demo/{z}/{x}/{y}.pbf'
-            : '/api/v1/tiles/kadastr/{z}/{x}/{y}.pbf')],
-        minzoom: isLocalPbfDemo ? 15 : 3,
-        maxzoom: isLocalPbfDemo ? 15 : 16,
-        ...(isLocalPbfDemo ? { bounds: localPbfDemoTileBounds } : {}),
-        attribution: isLocalPbfDemo
-            ? 'Кадастровий шар: локальний PBF KadastrView (демо)'
-            : 'Кадастровий шар: kadastrova-karta.com',
+        tiles: [isLocalOwnPbfSource
+            ? absoluteApiUrl('/api/v1/tiles/kadastr/{z}/{x}/{y}.pbf')
+            : `${ownPbfTileBaseUrl}/{z}/{x}/{y}.pbf`],
+        minzoom: isOwnPbfSource ? ownPbfMinZoom : 3,
+        maxzoom: isOwnPbfSource ? 13 : 16,
+        attribution: isOwnPbfSource ? 'Кадастровий шар: KadastrView (власні PBF)' : 'Кадастровий шар недоступний',
     });
 
     map.addLayer({
@@ -4662,10 +4661,8 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
         'source-layer': 'polygons',
         minzoom: externalPolygonMinZoom,
         paint: {
-            // Make the one locally generated fixture unmistakable against the
-            // satellite basemap. Production cadastral styling stays unchanged.
-            'fill-color': isLocalPbfDemo ? '#facc15' : cadastralOwnershipFillColor(),
-            'fill-opacity': isLocalPbfDemo ? 0.62 : 0.12,
+            'fill-color': cadastralOwnershipFillColor(),
+            'fill-opacity': 0.12,
         },
     });
 
@@ -4676,8 +4673,8 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
         'source-layer': 'polygons',
         minzoom: externalPolygonMinZoom,
         paint: {
-            'line-color': isLocalPbfDemo ? '#b45309' : cadastralOwnershipLineColor(),
-            'line-width': isLocalPbfDemo ? 3 : [
+            'line-color': cadastralOwnershipLineColor(),
+            'line-width': [
                 'interpolate',
                 ['linear'],
                 ['zoom'],
@@ -4686,21 +4683,9 @@ function addExternalKadastrLayer(map: maplibregl.Map): void {
                 11,
                 0.85,
             ],
-            'line-opacity': isLocalPbfDemo ? 1 : 0.72,
+            'line-opacity': 0.72,
         },
     });
-
-    // The local source deliberately contains only `polygons`, while the live
-    // source also contains `land_polygons`. Its fill/line must be registered
-    // before returning, otherwise a fetched PBF has nothing to render into.
-    if (isLocalPbfDemo) {
-        addExternalHighlightLayers(map, 'polygons');
-        moveLayerToTop(map, 'external-kadastr-polygons-fill');
-        moveLayerToTop(map, 'external-kadastr-polygons-line');
-        externalHoverLayerIds.forEach((layerId) => moveLayerToTop(map, layerId));
-        externalSelectedLayerIds.forEach((layerId) => moveLayerToTop(map, layerId));
-        return;
-    }
 
     map.addLayer({
         id: 'external-kadastr-land-fill',

@@ -1,5 +1,7 @@
 import { MongoClient } from 'mongodb';
 import { communityPath, indexableCommunityPages } from './community-page-data.mjs';
+import { districtPath, indexableDistrictPages } from './district-page-data.mjs';
+import { oblastSlugByName } from './geo-seo-regions.mjs';
 
 const siteUrl = 'https://kadastrview.online';
 const headers = { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=60, s-maxage=60, must-revalidate', 'netlify-cache-tag': 'seo-sitemaps' };
@@ -19,13 +21,21 @@ export async function handler(event, context = {}) {
 
 export async function locationSitemapUrls(db) {
     if (sitemapCache.expiresAt > Date.now()) return sitemapCache.urls;
-    const rows = await indexableCommunityPages(db);
-    const urls = rows.map((row) => ({
+    const [communities, districts] = await Promise.all([
+        indexableCommunityPages(db),
+        indexableDistrictPages(db, oblastSlugByName),
+    ]);
+    const urls = communities.map((row) => ({
         loc: `${siteUrl}${communityPath(row.katottg)}`,
         lastmod: validDate(row.latestUpdate),
         changefreq: 'weekly',
         priority: '0.65',
-    })).sort((a, b) => a.loc.localeCompare(b.loc));
+    })).concat(districts.map((row) => ({
+        loc: `${siteUrl}${districtPath(row.oblastSlug, row.district)}`,
+        lastmod: validDate(row.latestUpdate),
+        changefreq: 'weekly',
+        priority: '0.7',
+    }))).sort((a, b) => a.loc.localeCompare(b.loc));
     sitemapCache = { urls, expiresAt: Date.now() + 10 * 60 * 1000 };
     return urls;
 }

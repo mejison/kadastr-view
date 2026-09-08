@@ -1,6 +1,10 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { resolve, sep } from 'node:path';
 import { MongoClient, ObjectId } from 'mongodb';
-import { localDemoVectorTileBase64 } from './demo-vector-tile.mjs';
+import pg from 'pg';
+
+const { Pool } = pg;
 
 const jsonHeaders = {
     'content-type': 'application/json; charset=utf-8',
@@ -19,6 +23,8 @@ const vectorTileHeaders = {
 
 let mongoClientPromise;
 let mongoUnavailableUntil = 0;
+let postgisPool;
+let postgisUnavailableUntil = 0;
 
 export async function handler(event, context = {}) {
     context.callbackWaitsForEmptyEventLoop = false;
@@ -103,11 +109,6 @@ export async function handler(event, context = {}) {
             return proxyKadastrTile(tileMatch[1], tileMatch[2], tileMatch[3]);
         }
 
-        const localDemoTileMatch = path.match(/^tiles\/local-demo\/(\d+)\/(\d+)\/(\d+)\.pbf$/);
-        if (localDemoTileMatch) {
-            return localDemoVectorTile(localDemoTileMatch[1], localDemoTileMatch[2], localDemoTileMatch[3]);
-        }
-
         const geometryMatch = path.match(/^parcels\/(.+)\/geometry$/);
         if (geometryMatch) {
             return parcelGeometry(decodeURIComponent(geometryMatch[1]));
@@ -157,52 +158,26 @@ function geoJsonResponse(payload) {
 }
 
 async function proxyKadastrTile(z, x, y) {
-    const sourceUrl = `https://kadastrova-karta.com/tiles/maps/kadastr/${z}/${x}/${y}.pbf`;
-    const response = await fetch(sourceUrl, {
-        headers: {
-            accept: 'application/x-protobuf,application/octet-stream,*/*',
-            'user-agent': 'KadastrView development tile proxy',
-        },
-        signal: AbortSignal.timeout(10000),
-    });
-
-    if (!response.ok) {
-        return {
-            statusCode: response.status,
-            headers: vectorTileHeaders,
-            body: '',
-        };
-    }
-
-    const tileBuffer = Buffer.from(await response.arrayBuffer());
-
+    if (process.env.CADASTRAL_TILE_SOURCE === 'own-files') return ownFileTile(z, x, y);
     return {
-        statusCode: 200,
-        headers: vectorTileHeaders,
-        body: tileBuffer.toString('base64'),
-        isBase64Encoded: true,
+        statusCode: 503,
+        headers: { ...vectorTileHeaders, 'cache-control': 'no-store' },
+        body: '',
     };
 }
 
-function localDemoVectorTile(z, x, y) {
-    // This fixture intentionally has one tile and one synthetic parcel only.
-    // Do not turn unmatched coordinates into redirects or external requests.
-    if (z !== '15' || x !== '19028' || y !== '11221') {
-        return {
-            statusCode: 204,
-            headers: { ...vectorTileHeaders, 'cache-control': 'no-store' },
-            body: '',
-        };
+async function ownFileTile(z, x, y) {
+    if (![z, x, y].every((value) => /^\d+$/.test(value))) return { statusCode: 400, headers: vectorTileHeaders, body: '' };
+    const root = resolve(process.env.OWN_PBF_TILE_ROOT ?? 'storage/postgis-pbf/kadastr');
+    const path = resolve(root, z, x, `${y}.pbf`);
+    if (!path.startsWith(`${root}${sep}`)) return { statusCode: 400, headers: vectorTileHeaders, body: '' };
+    try {
+        const tile = await readFile(path);
+        return { statusCode: 200, headers: vectorTileHeaders, body: tile.toString('base64'), isBase64Encoded: true };
+    } catch (error) {
+        if (error?.code === 'ENOENT') return { statusCode: 204, headers: { ...vectorTileHeaders, 'cache-control': 'public, max-age=300' }, body: '' };
+        throw error;
     }
-
-    return {
-        statusCode: 200,
-        // A demo fixture changes during local development, so never leave a
-        // stale version in the browser's tile cache.
-        headers: { ...vectorTileHeaders, 'cache-control': 'no-store' },
-        body: localDemoVectorTileBase64,
-        isBase64Encoded: true,
-    };
 }
 
 function mapConfig() {
@@ -210,7 +185,7 @@ function mapConfig() {
         center: { lat: 48.3794, lng: 31.1656 },
         zoom: 5.2,
         locale: 'uk',
-        tile_endpoint: '/api/v1/tiles/kadastr/{z}/{x}/{y}.pbf',
+        tile_endpoint: ownPbfTileTemplate(),
         parcel_zoom_rules: [
             { range: [0, 9], detail: 'hidden' },
             { range: [10, 12], detail: 'low' },
@@ -233,16 +208,21 @@ function defaultLayers() {
             active: true,
         },
         {
-            name: 'Kadastr vector tiles',
-            slug: 'external-kadastr',
+            name: 'KadastrView vector tiles',
+            slug: 'kadastrview-pbf',
             type: 'vector',
-            source_url: '/api/v1/tiles/kadastr/{z}/{x}/{y}.pbf',
-            attribution: 'Кадастровий шар: kadastrova-karta.com',
-            min_zoom: 3,
-            max_zoom: 16,
+            source_url: ownPbfTileTemplate(),
+            attribution: 'Кадастровий шар: KadastrView',
+            min_zoom: 10,
+            max_zoom: 13,
             active: true,
         },
     ];
+}
+
+function ownPbfTileTemplate() {
+    const baseUrl = (process.env.OWN_PBF_TILE_BASE_URL ?? 'https://tiles.kadastrview.online/kadastr/v1').replace(/\/+$/, '');
+    return `${baseUrl}/{z}/{x}/{y}.pbf`;
 }
 
 function parcelServices() {
@@ -1078,16 +1058,28 @@ async function searchParcels(query) {
     }
 
     const db = await mongoDb();
-    if (!db) {
-        return [];
+    const mongoParcels = db
+        ? await db.collection('parcels')
+            .find({ cadastral_number_normalized: { $regex: `^${escapeRegExp(normalized)}` } })
+            .limit(8)
+            .toArray()
+        : [];
+    const resources = mongoParcels.map(parcelToApiResource);
+
+    if (resources.length >= 8) {
+        return resources;
     }
 
-    const parcels = await db.collection('parcels')
-        .find({ cadastral_number_normalized: { $regex: `^${escapeRegExp(normalized)}` } })
-        .limit(8)
-        .toArray();
+    const postgisParcels = await findPostgisParcelsByPrefix(normalized, 8 - resources.length);
+    const existingNumbers = new Set(resources.map((parcel) => parcel.cadastral_number));
 
-    return parcels.map(parcelToApiResource);
+    for (const parcel of postgisParcels) {
+        if (!existingNumbers.has(parcel.cadnum)) {
+            resources.push(postgisParcelToApiResource(parcel));
+        }
+    }
+
+    return resources.slice(0, 8);
 }
 
 async function parcelsGeoJson(limit) {
@@ -1121,9 +1113,13 @@ async function parcelDetails(cadastralNumber) {
     const normalized = normalizeCadastralNumber(cadastralNumber);
     const parcel = await findParcel(normalized);
     const openRights = await findOpenParcelRights(normalized);
+    const postgisParcel = parcel ? null : await findPostgisParcel(normalized);
 
     return jsonResponse({
-        data: parcel ? parcelToApiResource(parcel, openRights) : {
+        data: parcel ? parcelToApiResource(parcel, openRights) : postgisParcel ? {
+            ...postgisParcelToApiResource(postgisParcel),
+            rights: openRights,
+        } : {
             ...demoParcel(normalized),
             rights: openRights,
         },
@@ -1135,9 +1131,10 @@ async function parcelGeometry(cadastralNumber) {
     const parcel = await findParcel(normalized);
     const openRights = await findOpenParcelRights(normalized);
     const feature = parcel ? parcelToFeature(parcel, openRights) : null;
+    const postgisParcel = feature ? null : await findPostgisParcel(normalized, { includeGeometry: true });
 
     return jsonResponse({
-        data: feature ?? {
+        data: feature ?? (postgisParcel ? postgisParcelToFeature(postgisParcel, openRights) : {
             cadastral_number: normalized,
             type: 'Feature',
             geometry: null,
@@ -1145,7 +1142,7 @@ async function parcelGeometry(cadastralNumber) {
                 geometry_status: 'not_imported',
                 source_crs: 'EPSG:4326',
             },
-        },
+        }),
     });
 }
 
@@ -1165,9 +1162,6 @@ async function cadastralLookup(cadastralNumber) {
     }
 
     const db = await mongoDb();
-    if (!db) {
-        return jsonResponse({ error: 'Database temporarily unavailable' }, 503);
-    }
     const cached = db
         ? await db.collection('parcel_lookups').findOne({ cadastral_number: normalized })
         : null;
@@ -1188,51 +1182,19 @@ async function cadastralLookup(cadastralNumber) {
         });
     }
 
-    // The production API is intentionally local-first.  A remote lookup is
-    // opt-in for an operator during migration, never a hidden dependency.
-    if (process.env.EXTERNAL_CADASTRAL_LOOKUP_ENABLED !== 'true') {
-        return jsonResponse({ data: null, reason: 'centroid_not_imported' }, 404);
+    const postgisParcel = await findPostgisParcel(normalized);
+    if (!postgisParcel) {
+        return jsonResponse({ data: null, reason: 'parcel_not_found_in_own_index' }, 404);
     }
 
-    const sourceUrl = `https://kadastrova-karta.com/dilyanka/${encodeURIComponent(normalized)}`;
-    const response = await fetch(sourceUrl, {
-        headers: { accept: 'text/html' },
-        signal: AbortSignal.timeout(8000),
+    return jsonResponse({
+        data: {
+            cadastral_number: normalized,
+            centroid: postgisCentroid(postgisParcel),
+            source: 'kadastrview-postgis',
+            cached: false,
+        },
     });
-
-    if (!response.ok) {
-        return jsonResponse({ data: null }, 404);
-    }
-
-    const html = await response.text();
-    const lat = attributeFloat(html, 'data-map-parcel-lat-value');
-    const lng = attributeFloat(html, 'data-map-parcel-lng-value');
-
-    if (lat === null || lng === null) {
-        return jsonResponse({ data: null }, 404);
-    }
-
-    const data = {
-        cadastral_number: normalized,
-        centroid: { lat, lng },
-        source_url: sourceUrl,
-    };
-
-    if (db) {
-        await db.collection('parcel_lookups').updateOne(
-            { cadastral_number: normalized },
-            {
-                $set: {
-                    ...data,
-                    updated_at: new Date(),
-                },
-                $setOnInsert: { created_at: new Date() },
-            },
-            { upsert: true },
-        );
-    }
-
-    return jsonResponse({ data });
 }
 
 async function parcelLocation(cadastralNumber) {
@@ -1257,6 +1219,139 @@ async function parcelLocation(cadastralNumber) {
             source: 'kadastrview-mongodb',
         },
     });
+}
+
+async function findPostgisParcel(cadastralNumber, { includeGeometry = false } = {}) {
+    if (!isCadastralNumber(cadastralNumber)) {
+        return null;
+    }
+
+    const database = postgisDb();
+    if (!database) {
+        return null;
+    }
+
+    const geometryColumn = includeGeometry
+        ? `, ST_AsGeoJSON(geometry)::json AS geometry`
+        : '';
+
+    try {
+        const { rows } = await database.query(`
+            SELECT cadnum, properties, reported_area_hectares,
+                ST_Y(centroid) AS centroid_lat,
+                ST_X(centroid) AS centroid_lng
+                ${geometryColumn}
+            FROM parcel_geometries
+            WHERE cadnum = $1
+            LIMIT 1
+        `, [cadastralNumber]);
+        return rows[0] ?? null;
+    } catch (error) {
+        markPostgisUnavailable(error);
+        return null;
+    }
+}
+
+async function findPostgisParcelsByPrefix(prefix, limit) {
+    if (!prefix || limit < 1) {
+        return [];
+    }
+
+    const database = postgisDb();
+    if (!database) {
+        return [];
+    }
+
+    try {
+        const { rows } = await database.query(`
+            SELECT cadnum, properties, reported_area_hectares,
+                ST_Y(centroid) AS centroid_lat,
+                ST_X(centroid) AS centroid_lng
+            FROM parcel_geometries
+            WHERE cadnum LIKE $1
+            ORDER BY cadnum
+            LIMIT $2
+        `, [`${prefix}%`, limit]);
+        return rows;
+    } catch (error) {
+        markPostgisUnavailable(error);
+        return [];
+    }
+}
+
+function postgisParcelToApiResource(parcel) {
+    const properties = parcel.properties ?? {};
+    const area = finiteNumber(parcel.reported_area_hectares) ?? finiteNumber(properties.area) ?? 0;
+    const ownership = nullableString(properties.ownership) ?? nullableString(properties.ownership_type);
+    const category = nullableString(properties.category) ?? nullableString(properties.land_category);
+    const purposeCode = nullableString(properties.purpose_code);
+    const purposeName = nullableString(properties.purpose_name) ?? nullableString(properties.purpose);
+
+    return {
+        id: parcel.cadnum,
+        cadastral_number: parcel.cadnum,
+        area: { declared: area, calculated: 0, unit: 'ha' },
+        ownership_type: ownership ? { id: null, name: ownership } : null,
+        land_category: category ? { id: null, name: category } : null,
+        purpose: purposeCode || purposeName ? { code: purposeCode, name: purposeName } : null,
+        address: nullableString(properties.address) ?? 'Україна',
+        rights: null,
+        centroid: postgisCentroid(parcel),
+        source: {
+            name: 'KadastrView PostGIS',
+            updated_at: null,
+            official: false,
+        },
+        freshness_status: 'own_vector_index',
+        geometry_available: Boolean(parcel.geometry),
+    };
+}
+
+function postgisParcelToFeature(parcel, openRights = null) {
+    const resource = postgisParcelToApiResource(parcel);
+
+    return {
+        type: 'Feature',
+        id: parcel.cadnum,
+        geometry: parcel.geometry ?? null,
+        properties: {
+            id: parcel.cadnum,
+            cadastral_number: parcel.cadnum,
+            address: resource.address,
+            area_declared: resource.area.declared,
+            freshness_status: resource.freshness_status,
+            geometry_status: parcel.geometry ? 'available' : 'not_loaded',
+            ownership_type: resource.ownership_type?.name ?? null,
+            ownership: resource.ownership_type?.name ?? null,
+            land_category: resource.land_category?.name ?? null,
+            category: resource.land_category?.name ?? null,
+            purpose_code: resource.purpose?.code ?? null,
+            purpose_name: resource.purpose?.name ?? null,
+            source_name: resource.source.name,
+            source_official: false,
+            ...parcelRightsProperties({}, openRights),
+        },
+    };
+}
+
+function postgisCentroid(parcel) {
+    return {
+        lat: finiteNumber(parcel.centroid_lat),
+        lng: finiteNumber(parcel.centroid_lng),
+    };
+}
+
+function finiteNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+}
+
+function nullableString(value) {
+    if (typeof value !== 'string' && typeof value !== 'number') {
+        return null;
+    }
+    const normalized = String(value).trim();
+    return normalized || null;
 }
 
 async function findParcel(normalizedNumber) {
@@ -1531,14 +1626,6 @@ function isCadastralNumber(value) {
     return /^\d{10}:\d{2}:\d{3}:\d{4}$/.test(value);
 }
 
-function attributeFloat(html, attribute) {
-    const match = html.match(new RegExp(`${escapeRegExp(attribute)}="([^"]+)"`));
-    const value = match?.[1];
-    const parsed = Number(value);
-
-    return Number.isFinite(parsed) ? parsed : null;
-}
-
 function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -1571,5 +1658,34 @@ async function mongoDb() {
         console.error('MongoDB connection unavailable', error);
 
         return null;
+    }
+}
+
+function postgisDb() {
+    if ((!process.env.POSTGRES_URL && !process.env.PGHOST) || Date.now() < postgisUnavailableUntil) {
+        return null;
+    }
+
+    postgisPool ??= new Pool({
+        connectionString: process.env.POSTGRES_URL,
+        host: process.env.PGHOST,
+        port: process.env.PGPORT ? Number(process.env.PGPORT) : undefined,
+        user: process.env.PGUSER,
+        password: process.env.PGPASSWORD,
+        database: process.env.PGDATABASE ?? 'kadastrview_geo',
+        max: 3,
+        connectionTimeoutMillis: 2000,
+        idleTimeoutMillis: 10000,
+    });
+
+    return postgisPool;
+}
+
+function markPostgisUnavailable(error) {
+    postgisUnavailableUntil = Date.now() + 60000;
+    console.error('PostGIS connection unavailable', error);
+    if (postgisPool) {
+        void postgisPool.end().catch(() => {});
+        postgisPool = null;
     }
 }

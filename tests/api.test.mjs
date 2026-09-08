@@ -16,7 +16,7 @@ describe('public API contracts', () => {
         const payload = JSON.parse(response.body);
 
         expect(response.statusCode).toBe(200);
-        expect(payload.data.tile_endpoint).toContain('/api/v1/tiles/kadastr/');
+        expect(payload.data.tile_endpoint).toBe('https://tiles.kadastrview.online/kadastr/v1/{z}/{x}/{y}.pbf');
         expect(payload.data.locale).toBe('uk');
     });
 
@@ -26,7 +26,7 @@ describe('public API contracts', () => {
 
         expect(layers.data).toEqual(expect.arrayContaining([
             expect.objectContaining({ slug: 'osm' }),
-            expect.objectContaining({ slug: 'external-kadastr' }),
+            expect.objectContaining({ slug: 'kadastrview-pbf' }),
         ]));
         expect(services.data).toEqual(expect.arrayContaining([
             expect.objectContaining({ id: 'dzk_extract', price: 100 }),
@@ -38,13 +38,4 @@ describe('public API contracts', () => {
         expect((await request('/api/v1/map/config', 'PUT')).statusCode).toBe(405);
     });
 
-    it('serves the synthetic PBF fixture from our own API without upstream proxying', async () => {
-        const response = await request('/api/v1/tiles/local-demo/15/19028/11221.pbf');
-
-        expect(response.statusCode).toBe(200);
-        expect(response.headers['content-type']).toBe('application/x-protobuf');
-        expect(response.isBase64Encoded).toBe(true);
-        expect(Buffer.from(response.body, 'base64').byteLength).toBeGreaterThan(100);
-        expect((await request('/api/v1/tiles/local-demo/15/1/1.pbf')).statusCode).toBe(204);
-    });
 });

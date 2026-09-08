@@ -10,7 +10,10 @@
         "data:sync-open-leases:mongo": "node --env-file=.env scripts/sync-open-lease-sqlite-to-mongo.mjs",
         "data:enrich-locations": "node --env-file=.env scripts/enrich-parcel-locations.mjs",
         "data:backfill-centroids": "node --env-file=.env scripts/backfill-parcel-centroids.mjs",
-        "data:demo-vector-tile": "node scripts/generate-demo-vector-tile.mjs",
+        "data:import-pbf-postgis": "node scripts/import-pbf-tiles-to-postgis.mjs",
+        "data:assemble-postgis-parcels": "node scripts/assemble-postgis-parcels.mjs",
+        "data:generate-own-pbf": "node scripts/generate-postgis-pbf-tiles.mjs",
+        "data:upload-pbf-r2": "node scripts/upload-pbf-to-r2.mjs",
         "dev": "netlify dev",
         "test": "vitest run",
         "test:watch": "vitest",
@@ -33,9 +36,13 @@
         "vue-tsc": "^3.3.7"
     },
     "dependencies": {
+        "@aws-sdk/client-s3": "^3.1127.0",
         "@lucide/vue": "^1.24.0",
+        "@mapbox/vector-tile": "^2.0.4",
         "maplibre-gl": "^5.24.0",
         "mongodb": "^7.5.0",
+        "pbf": "^4.0.1",
+        "pg": "^8.23.0",
         "vue": "^3.5.39",
         "xlsx": "^0.18.5"
     }
